@@ -1,45 +1,53 @@
-# CodexQuota
+# Mini Token Bar
 
-A deliberately small macOS menu-bar app for monitoring Codex usage.
+**Your Codex limits, one glance away.** A tiny native macOS menu-bar app showing remaining usage, reset times, and a compact account overview. The installed app is called **CodexQuota**.
 
-The menu bar shows two equal-weight numbers:
+<p align="center"><img src="docs/screenshot.png" alt="CodexQuota popup with a weekly usage card, two Spark limit cards, credit balance and available resets" width="360"></p>
+<p align="center"><sub>Native interface rendered with example data.</sub></p>
+
+- **Always visible:** remaining quota with clear `5h` / `week` labels.
+- **One click:** general and Spark limits, reset dates, plan, credits, and available resets.
+- **Stays current:** refreshes every minute and when opened; supports weekly-only plans.
+- **Small and private:** SwiftUI + AppKit, no dependencies, no analytics, no task-history access.
+
+## Install with Codex
+
+Copy this prompt into **Codex on your Mac**:
 
 ```text
-5-hour remaining · weekly remaining
+Install CodexQuota from https://github.com/sanekovs/minitokenbar on this Mac. Read INSTALL.md and follow it: check prerequisites, clone the repo, build, install, launch, and verify the app is running. Never print or upload my Codex credentials.
 ```
 
-Click the numbers for:
+That's the whole request. Codex handles the steps in [INSTALL.md](INSTALL.md). If Apple Command Line Tools are missing, macOS needs you to finish their installer first.
 
-- 5-hour and weekly quota remaining
-- reset dates and times
-- subscription/API source
-- today's largest local Codex task and model
-- manual refresh
+**Requires:** macOS 14+, Apple Command Line Tools or Xcode, and Codex signed in with a ChatGPT subscription. Tested on Apple Silicon. API-key mode has no subscription quota to display.
 
-## Privacy
-
-CodexQuota reads `~/.codex/auth.json` to request quota data from OpenAI and reads the local Codex SQLite database for task activity. Credentials and task history stay on the Mac; task history is never uploaded by this app.
-
-The quota request uses the same authenticated ChatGPT usage endpoint used by Codex-compatible quota monitors. This is an unofficial project and is not affiliated with OpenAI.
-
-## Requirements
-
-- Apple Silicon Mac
-- macOS 14 or newer
-- Codex signed in with a ChatGPT subscription, or API-key mode for source detection
-
-## Build
+<details>
+<summary>Install manually</summary>
 
 ```sh
-swift build -c release
-```
-
-To create and install the menu-bar app:
-
-```sh
+git clone https://github.com/sanekovs/minitokenbar.git
+cd minitokenbar
 ./scripts/install.sh
 ```
 
-## License
+Builds locally, installs to `/Applications` (or `~/Applications` if needed), and launches. No administrator password required. Run the same script again to update a local build.
 
-MIT
+</details>
+
+## Privacy & limitations
+
+The app reads `~/.codex/auth.json` and uses the existing session to request usage directly from `chatgpt.com`. Credentials are never logged or sent elsewhere. Task history is not read. Missing values stay unavailable; failed refreshes retain the previous values with a warning.
+
+This is an unofficial tool, not affiliated with OpenAI. It uses an undocumented usage endpoint that may change. It displays subscription quota percentages, not a raw token count. No purchases or usage resets are triggered by the app.
+
+## Development
+
+```sh
+swift build -c release
+zsh scripts/test-parser.sh
+```
+
+To uninstall, quit CodexQuota and move `CodexQuota.app` from its installation folder to Trash. The app does not modify your Codex account or set up automatic launch at login.
+
+[MIT License](LICENSE)
