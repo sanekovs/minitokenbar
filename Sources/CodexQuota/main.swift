@@ -36,6 +36,7 @@ struct QuotaSnapshot {
     let resets: Int?
     var menuTitle: String {
         guard let windows = groups.first?.windows, !windows.isEmpty else { return "Codex —" }
+        if windows.count == 1 { return "\(windows[0].remaining)%" }
         return windows.map { "\($0.remaining)% · \($0.shortLabel)" }.joined(separator: "  ")
     }
     static func parse(_ json: [String: Any]) -> QuotaSnapshot {
@@ -72,110 +73,169 @@ final class QuotaModel: ObservableObject {
     @Published var updated: Date?
 }
 
+// Keep the entire panel on the screen containing the status item, including
+// secondary displays with negative origins and displays above the main screen.
+func quotaPanelFrame(anchor: NSRect, visibleFrame: NSRect) -> NSRect {
+    let safe = visibleFrame.insetBy(dx: 10, dy: 10)
+    let size = NSSize(width: min(340, safe.width), height: min(454, safe.height))
+    return NSRect(x: min(max(anchor.maxX - size.width, safe.minX), safe.maxX - size.width),
+                  y: min(max(anchor.minY - size.height - 8, safe.minY), safe.maxY - size.height),
+                  width: size.width, height: size.height)
+}
+
+struct FrostedBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .popover
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
 struct QuotaPanel: View {
     @ObservedObject var model: QuotaModel
     let refresh: () -> Void
     let quit: () -> Void
-    private let accent = Color(red: 0.58, green: 0.79, blue: 0.70)
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Codex").font(.system(size: 19, weight: .semibold))
-                    Text("Usage & billing").font(.system(size: 11)).foregroundStyle(.secondary)
-                }
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "circle.hexagongrid.fill").font(.system(size: 18, weight: .medium))
+                Text("Codex").font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Text(model.snapshot?.plan ?? "Account")
-                    .font(.system(size: 11, weight: .medium))
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(.primary.opacity(0.06), in: Capsule())
-            }
-            if let snapshot = model.snapshot {
-                ForEach(Array(snapshot.groups.enumerated()), id: \.offset) { _, group in
-                    VStack(alignment: .leading, spacing: 9) {
-                        Text(group.name).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                        if group.windows.isEmpty {
-                            Text("No usage window reported").font(.system(size: 12)).foregroundStyle(.secondary)
-                        } else {
-                            HStack(alignment: .top, spacing: 10) {
-                                ForEach(Array(group.windows.enumerated()), id: \.offset) { _, window in
-                                    windowCard(window)
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .background(.primary.opacity(0.07), in: Capsule())
+            }.padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 16)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let snapshot = model.snapshot {
+                        if let general = snapshot.groups.first, !general.windows.isEmpty {
+                            HStack(alignment: .top, spacing: 20) {
+                                ForEach(Array(general.windows.enumerated()), id: \.offset) { _, window in
+                                    primaryMetric(window, single: general.windows.count == 1)
                                 }
-                            }
+                            }.padding(.horizontal, 22)
+                        } else {
+                            Text(snapshot.plan == "API" ? "Subscription usage is not available in API mode." : "No usage window reported.")
+                                .font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 22)
                         }
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(snapshot.groups.dropFirst().enumerated()), id: \.offset) { _, group in
+                                HStack {
+                                    Text(group.name.replacingOccurrences(of: "GPT-5.3-Codex-Spark", with: "Spark"))
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Spacer()
+                                    Image(systemName: "bolt.fill").font(.system(size: 11)).foregroundStyle(.secondary)
+                                }.padding(.bottom, 4)
+                                ForEach(Array(group.windows.enumerated()), id: \.offset) { _, window in
+                                    additionalRow(window)
+                                }
+                                Divider().overlay(.primary.opacity(0.03)).padding(.vertical, 14)
+                            }
+                            HStack(alignment: .top, spacing: 20) {
+                                smallMetric("Credits", value: snapshot.balance ?? "Unavailable")
+                                smallMetric("Usage resets", value: snapshot.resets.map { "\($0) available" } ?? "Unavailable")
+                            }
+                        }.padding(18)
+                            .background(.primary.opacity(scheme == .dark ? 0.035 : 0.025), in: RoundedRectangle(cornerRadius: 18))
+                            .padding(.horizontal, 10)
+                    } else {
+                        HStack { ProgressView().controlSize(.small); Text("Loading usage…") }
+                            .font(.system(size: 12)).padding(22)
                     }
-                }
-                HStack(spacing: 0) {
-                    metric("Credits balance", value: snapshot.balance ?? "Unavailable")
-                    Rectangle().fill(.primary.opacity(0.08)).frame(width: 1, height: 28).padding(.horizontal, 16)
-                    metric("Usage resets", value: snapshot.resets.map { $0 == 0 ? "None available" : "\($0) available" } ?? "Unavailable")
-                }.padding(.vertical, 2)
-            } else if model.loading {
-                HStack { ProgressView().controlSize(.small); Text("Loading usage…").font(.system(size: 12)) }.padding(.vertical, 28)
-            }
-            if let error = model.error {
-                Label(error, systemImage: "exclamationmark.circle")
-                    .font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
-            Divider().opacity(0.5)
-            HStack(spacing: 12) {
-                Button(action: refresh) {
-                    Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .medium))
-                        .frame(width: 26, height: 26).background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7))
-                }.buttonStyle(.plain).disabled(model.loading).help("Refresh usage (⌘R)").keyboardShortcut("r")
-                Text(model.loading ? "Refreshing…" : model.updated.map { "Updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Not updated")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                Button(action: {
-                    NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!)
-                }) {
-                    Image(systemName: "arrow.up.right").frame(width: 24, height: 26)
-                }.buttonStyle(.plain).help("Open usage & billing")
-                Button(action: quit) {
-                    Image(systemName: "power").frame(width: 24, height: 26)
-                }.buttonStyle(.plain).help("Quit CodexQuota (⌘Q)").keyboardShortcut("q")
-            }.foregroundStyle(.secondary)
+                    if let error = model.error {
+                        Label(error, systemImage: "exclamationmark.circle")
+                            .font(.system(size: 11)).foregroundStyle(.orange)
+                            .padding(.horizontal, 22).fixedSize(horizontal: false, vertical: true)
+                    }
+                }.padding(.bottom, 8)
+            }.scrollIndicators(.hidden)
+            HStack(spacing: 7) {
+                Button(action: refresh) { Image(systemName: "arrow.triangle.2.circlepath").frame(width: 25, height: 28) }
+                    .disabled(model.loading).keyboardShortcut("r").help("Refresh usage")
+                Text(model.loading ? "Syncing…" : model.updated.map { "Synced \($0.formatted(date: .omitted, time: .shortened))" } ?? "Not synced")
+                    .font(.system(size: 10))
+                Spacer()
+                Button(action: { NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!) }) {
+                    Image(systemName: "arrow.up.right").frame(width: 28, height: 28)
+                }.help("Open usage & billing")
+                Button(action: quit) { Image(systemName: "power").frame(width: 28, height: 28) }
+                    .keyboardShortcut("q").help("Quit CodexQuota")
+            }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
+                .padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 10)
         }
-        .padding(20).frame(width: 360)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background {
+            if reduceTransparency { Color(nsColor: .windowBackgroundColor) }
+            else {
+                FrostedBackground()
+                    .overlay(scheme == .dark ? Color.black.opacity(0.48) : Color.white.opacity(0.35))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.primary.opacity(0.1), lineWidth: 0.5))
     }
-    private func metric(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.system(size: 10)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 12, weight: .medium)).monospacedDigit()
+    private func primaryMetric(_ window: QuotaWindow, single: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("\(window.label) remaining").font(.system(size: 11)).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text("\(window.remaining)").font(.system(size: single ? 50 : 38, weight: .semibold)).tracking(-2)
+                Text("%").font(.system(size: single ? 28 : 20, weight: .medium)).foregroundStyle(.secondary)
+            }.monospacedDigit()
+            meter(window, color: .primary, height: 5)
+            Text(resetText(window)).font(.system(size: 10)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
-    private func windowCard(_ window: QuotaWindow) -> some View {
-        let tint = window.remaining <= 10 ? Color.red : window.remaining <= 25 ? Color.orange : accent
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(window.label).font(.system(size: 11, weight: .medium))
-                Spacer(minLength: 0)
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("\(window.remaining)%").font(.system(size: 29, weight: .medium, design: .rounded)).tracking(-1).monospacedDigit()
-                Text("left").font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.primary.opacity(0.08))
-                    Capsule().fill(tint).frame(width: geometry.size.width * Double(window.remaining) / 100)
-                }
-            }.frame(height: 4).accessibilityLabel("\(window.remaining) percent remaining")
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Resets").foregroundStyle(.tertiary)
-                Text(window.reset.map { $0.formatted(.dateTime.month(.abbreviated).day().hour().minute()) } ?? "Not reported")
-                    .foregroundStyle(.secondary)
-            }.font(.system(size: 10)).fixedSize(horizontal: false, vertical: true)
-        }.padding(13).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.06), lineWidth: 1))
+    private func additionalRow(_ window: QuotaWindow) -> some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(window.label).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(resetText(window)).font(.system(size: 9)).foregroundStyle(.secondary)
+            }.frame(width: 110, alignment: .leading)
+            meter(window, color: scheme == .dark ? Color(red: 0.73, green: 0.65, blue: 0.98) : Color(red: 0.43, green: 0.31, blue: 0.72), height: 18)
+            Text("\(window.remaining)%").font(.system(size: 20, weight: .semibold)).monospacedDigit()
+                .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                .frame(width: 62, alignment: .trailing)
+        }.padding(.vertical, 9)
     }
+    private func meter(_ window: QuotaWindow, color: Color, height: CGFloat) -> some View {
+        GeometryReader { geometry in
+            HStack(spacing: 3) {
+                ForEach(0..<20) { index in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(index < Int(ceil(Double(window.remaining) / 5)) ? (window.remaining <= 10 ? Color.orange : color) : .primary.opacity(0.1))
+                }
+            }.frame(width: geometry.size.width)
+        }.frame(height: height).accessibilityLabel("\(window.remaining) percent remaining")
+    }
+    private func resetText(_ window: QuotaWindow) -> String {
+        guard let date = window.reset else { return "Reset not reported" }
+        return "Resets " + (Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .shortened) : date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
+    }
+    private func smallMetric(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 15, weight: .medium)).monospacedDigit()
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+final class QuotaWindowPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+    override func cancelOperation(_ sender: Any?) { orderOut(nil) }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private let popover = NSPopover()
+    private let panel = QuotaWindowPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private var outsideMonitor: Any?
+    private var localMonitor: Any?
     private let model = QuotaModel()
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -184,18 +244,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
-        popover.behavior = .transient
-        popover.animates = false
-        popover.contentViewController = NSHostingController(rootView: QuotaPanel(model: model, refresh: { [weak self] in self?.refresh() }, quit: { NSApp.terminate(nil) }))
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .popUpMenu
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = true
+        panel.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: QuotaPanel(model: model, refresh: { [weak self] in self?.refresh() }, quit: { NSApp.terminate(nil) }))
+        host.sizingOptions = []
+        panel.contentView = host
+        outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in self?.panel.orderOut(nil) }
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
+            guard let self, self.panel.isVisible else { return event }
+            if event.type == .keyDown && event.keyCode == 53 { self.panel.orderOut(nil); return nil }
+            if event.type != .keyDown && event.window !== self.panel && event.window !== self.statusItem.button?.window { self.panel.orderOut(nil) }
+            return event
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         refresh()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
     }
+    @objc private func screenChanged() { if panel.isVisible { positionPanel() } }
+    private func positionPanel() {
+        guard let button = statusItem.button, let window = button.window else { return }
+        let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: anchor.midX, y: anchor.midY)) }) ?? window.screen else { return }
+        panel.setFrame(quotaPanelFrame(anchor: anchor, visibleFrame: screen.visibleFrame), display: true)
+    }
     @objc private func togglePopover() {
-        if popover.isShown { popover.performClose(nil) }
-        else if let button = statusItem.button {
-            NSApp.activate(ignoringOtherApps: true)
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+        if panel.isVisible { panel.orderOut(nil) }
+        else {
+            positionPanel()
+            panel.makeKeyAndOrderFront(nil)
             refresh()
         }
     }
@@ -213,6 +294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.model.error = nil
                     self.model.updated = Date()
                     self.statusItem.button?.title = snapshot.menuTitle
+                    if self.panel.isVisible { self.positionPanel() }
                     self.statusItem.button?.toolTip = "Codex · " + snapshot.groups.flatMap { group in group.windows.map { "\(group.name), \($0.label): \($0.remaining)% left" } }.joined(separator: "\n")
                 case .failure(let error):
                     self.model.error = error.localizedDescription

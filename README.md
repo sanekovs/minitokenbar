@@ -2,12 +2,13 @@
 
 **Your Codex limits, one glance away.** A tiny native macOS menu-bar app showing remaining usage, reset times, and a compact account overview. The installed app is called **CodexQuota**.
 
-<p align="center"><img src="docs/screenshot.png" alt="CodexQuota popup with a weekly usage card, two Spark limit cards, credit balance and available resets" width="360"></p>
+<p align="center"><img src="docs/screenshot.png" alt="CodexQuota popup with a weekly usage card, two Spark limit cards, credit balance and available resets" width="340"> <img src="docs/screenshot-light.png" alt="Light theme" width="340"></p>
 <p align="center"><sub>Native interface rendered with example data.</sub></p>
 
-- **Always visible:** remaining quota with clear `5h` / `week` labels.
+- **Always visible:** remaining quota as a single percentage for one window; `5h` / `week` labels only when there are multiple windows.
 - **One click:** general and Spark limits, reset dates, plan, credits, and available resets.
 - **Stays current:** refreshes every minute and when opened; supports weekly-only plans.
+- **Native feel:** frosted background, automatic light/dark themes, and a panel kept inside the current display.
 - **Small and private:** SwiftUI + AppKit, no dependencies, no analytics, no task-history access.
 
 ## Install with Codex
@@ -46,6 +47,7 @@ This is an unofficial tool, not affiliated with OpenAI. It uses an undocumented 
 ```sh
 swift build -c release
 zsh scripts/test-parser.sh
+zsh scripts/test-panel.sh
 ```
 
 To uninstall, quit CodexQuota and move `CodexQuota.app` from its installation folder to Trash. The app does not modify your Codex account or set up automatic launch at login.
