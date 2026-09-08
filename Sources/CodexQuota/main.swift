@@ -83,6 +83,10 @@ func quotaPanelFrame(anchor: NSRect, visibleFrame: NSRect) -> NSRect {
                   width: size.width, height: size.height)
 }
 
+func shouldDismissQuotaPanel(at point: NSPoint, panelFrame: NSRect, statusFrame: NSRect?) -> Bool {
+    !panelFrame.contains(point) && statusFrame?.contains(point) != true
+}
+
 struct FrostedBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
@@ -225,6 +229,11 @@ struct QuotaPanel: View {
     }
 }
 
+final class QuotaHostingView: NSHostingView<QuotaPanel> {
+    // Controls should respond to the first click while another app is active.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 final class QuotaWindowPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -244,26 +253,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
+        statusItem.button?.sendAction(on: [.leftMouseUp])
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hidesOnDeactivate = true
+        // A nonactivating panel must not implicitly hide on app deactivation:
+        // AppKit can leave isVisible true even while the panel is hidden.
+        panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        let host = NSHostingView(rootView: QuotaPanel(model: model, refresh: { [weak self] in self?.refresh() }, quit: { NSApp.terminate(nil) }))
+        let host = QuotaHostingView(rootView: QuotaPanel(model: model, refresh: { [weak self] in self?.refresh() }, quit: { NSApp.terminate(nil) }))
         host.sizingOptions = []
         panel.contentView = host
-        outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in self?.panel.orderOut(nil) }
+        outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.dismissIfOutside()
+        }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self, self.panel.isVisible else { return event }
             if event.type == .keyDown && event.keyCode == 53 { self.panel.orderOut(nil); return nil }
-            if event.type != .keyDown && event.window !== self.panel && event.window !== self.statusItem.button?.window { self.panel.orderOut(nil) }
+            if event.type != .keyDown { self.dismissIfOutside() }
             return event
         }
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         refresh()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+    }
+    private var statusButtonFrame: NSRect? {
+        guard let button = statusItem.button, let window = button.window else { return nil }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
+    private func dismissIfOutside() {
+        guard panel.isVisible else { return }
+        let point = NSEvent.mouseLocation
+        // Status-item events can be routed through a system window, so compare
+        // screen coordinates instead of relying on NSEvent.window identity.
+        guard shouldDismissQuotaPanel(at: point, panelFrame: panel.frame, statusFrame: statusButtonFrame) else { return }
+        panel.orderOut(nil)
     }
     @objc private func screenChanged() { if panel.isVisible { positionPanel() } }
     private func positionPanel() {
