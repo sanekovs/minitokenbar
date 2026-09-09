@@ -29,6 +29,8 @@ binary_dir="$(swift build -c release --show-bin-path)"
 mkdir -p "$app_dir/Contents/MacOS"
 cp "$binary_dir/CodexQuota" "$app_dir/Contents/MacOS/CodexQuota"
 cp "$project_dir/support/Info.plist" "$app_dir/Contents/Info.plist"
+mkdir -p "$app_dir/Contents/Resources"
+ditto "$binary_dir/CodexQuota_CodexQuota.bundle" "$app_dir/Contents/Resources/CodexQuota_CodexQuota.bundle"
 codesign --force --sign - "$app_dir"
 codesign --verify --deep --strict "$app_dir"
 # Replace the app only after the new build is ready.

@@ -5,6 +5,6 @@ let package = Package(
     name: "CodexQuota",
     platforms: [.macOS(.v14)],
     products: [.executable(name: "CodexQuota", targets: ["CodexQuota"])],
-    targets: [.executableTarget(name: "CodexQuota")],
+    targets: [.executableTarget(name: "CodexQuota", resources: [.copy("Resources")])],
     swiftLanguageVersions: [.v5]
 )
