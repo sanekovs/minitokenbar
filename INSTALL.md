@@ -13,3 +13,9 @@ Do not purchase credits, consume usage resets, change the user's subscription, e
 ## Update
 
 In a clean checkout with the correct origin, run `git pull --ff-only`, then rerun `./scripts/install.sh`. Preserve local changes or use a new checkout instead. The installer replaces only CodexQuota's application bundle.
+
+## If it appears not to launch
+
+CodexQuota lives in the macOS menu bar and has no Dock icon. The panel opens on launch; opening the app again from Applications brings it back. Look for a percentage, `Codex …`, or `Codex !` at the top of the screen.
+
+If the panel never appears, check `pgrep -x CodexQuota`. A missing process means launch failed; inspect the CodexQuota crash report in Console before diagnosing the cause. A generic Finder icon alone does not mean the app is broken. Report the macOS version, Mac architecture, and relevant crash error, without credentials or session files.

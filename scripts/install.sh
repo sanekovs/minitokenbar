@@ -37,4 +37,12 @@ codesign --verify --deep --strict "$app_dir"
 pkill -x CodexQuota 2>/dev/null || true
 ditto "$app_dir" "$installed_app"
 open "$installed_app"
-print "Installed and launched: $installed_app"
+sleep 3
+if ! pgrep -x CodexQuota >/dev/null; then
+  print -u2 "Installed, but CodexQuota exited during launch: $installed_app"
+  print -u2 'Check Console → Crash Reports for CodexQuota. Do not share session credentials.'
+  exit 1
+fi
+print "Installed and running: $installed_app"
+print 'The usage panel opens at launch. Afterwards, click the percentage or Codex in the macOS menu bar.'
+print 'Opening CodexQuota from Applications shows the panel again; it has no Dock icon.'

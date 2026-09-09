@@ -363,7 +363,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         refresh()
+        DispatchQueue.main.async { [weak self] in self?.showPanel() }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+    }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showPanel()
+        return false
+    }
+    private func showPanel() {
+        positionPanel()
+        panel.makeKeyAndOrderFront(nil)
+        refresh()
     }
     private var statusButtonFrame: NSRect? {
         guard let button = statusItem.button, let window = button.window else { return nil }
@@ -379,18 +389,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func screenChanged() { if panel.isVisible { positionPanel() } }
     private func positionPanel() {
-        guard let button = statusItem.button, let window = button.window else { return }
-        let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: anchor.midX, y: anchor.midY)) }) ?? window.screen else { return }
+        // A hidden menu bar or a crowded notch can leave the status item without
+        // an on-screen window. Opening from Finder must still show the panel.
+        let anchorFrame = statusButtonFrame
+        guard let screen = anchorFrame.flatMap({ anchor in
+            NSScreen.screens.first { $0.frame.contains(NSPoint(x: anchor.midX, y: anchor.midY)) }
+        }) ?? NSScreen.main else { return }
+        let anchor = anchorFrame ?? NSRect(x: screen.visibleFrame.maxX - 30, y: screen.visibleFrame.maxY, width: 20, height: 20)
         panel.setFrame(quotaPanelFrame(anchor: anchor, visibleFrame: screen.visibleFrame), display: true)
     }
     @objc private func togglePopover() {
         if panel.isVisible { panel.orderOut(nil) }
-        else {
-            positionPanel()
-            panel.makeKeyAndOrderFront(nil)
-            refresh()
-        }
+        else { showPanel() }
     }
     private func refresh() {
         refreshInsights()
