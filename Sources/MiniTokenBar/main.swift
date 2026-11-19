@@ -87,7 +87,9 @@ final class DevinQuotaModel: ObservableObject {
 // secondary displays with negative origins and displays above the main screen.
 func quotaPanelFrame(anchor: NSRect, visibleFrame: NSRect) -> NSRect {
     let safe = visibleFrame.insetBy(dx: 10, dy: 10)
-    let size = NSSize(width: min(340, safe.width), height: min(640, safe.height))
+    // Content is ~590pt (exact Figma height) + ~42pt footer = ~632pt; cap with
+    // real headroom so it's never one SwiftUI font-metric away from clipping.
+    let size = NSSize(width: min(340, safe.width), height: min(700, safe.height))
     return NSRect(x: min(max(anchor.maxX - size.width, safe.minX), safe.maxX - size.width),
                   y: min(max(anchor.minY - size.height - 8, safe.minY), safe.maxY - size.height),
                   width: size.width, height: size.height)
@@ -241,6 +243,12 @@ struct QuotaPanel: View {
         .overlay(RoundedRectangle(cornerRadius: 34).strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75))
     }
 
+    // Every row below packs edge-to-edge in the design (metadata shows zero gap
+    // between siblings — each row's own text padding IS the spacing). Heights
+    // are forced with .frame so SwiftUI's font metrics can't inflate them:
+    // header 38 (18 + pad 10/10), label 29 (15 + pad 10/4), number 32 (no pad),
+    // reset 29 (15 + pad 4/10), slider 24. A column totals 29+32+29+24=114,
+    // matching the Figma frame exactly.
     private func serviceHeader(mark: some View, title: String, url: String, trailing: String?) -> some View {
         HStack(spacing: 8) {
             Button(action: { NSWorkspace.shared.open(URL(string: url)!) }) {
@@ -248,14 +256,16 @@ struct QuotaPanel: View {
                     mark
                     Text(title).font(.system(size: 15, weight: .semibold)).tracking(-0.43)
                         .foregroundStyle(Color.white.opacity(0.92))
+                        .frame(height: 18).padding(.vertical, 10)
                 }
             }.buttonStyle(.plain).help("Open usage & limits")
             Spacer()
             if let trailing {
                 Text(trailing).font(.system(size: 13, weight: .regular)).tracking(-0.08)
                     .foregroundStyle(Color.white.opacity(0.45)).lineLimit(1)
+                    .frame(height: 15)
             }
-        }.padding(.horizontal, 20).padding(.vertical, 10)
+        }.padding(.horizontal, 20)
     }
     private func windowsRow(_ windows: [QuotaWindow]) -> some View {
         HStack(alignment: .top, spacing: 16) {
@@ -267,16 +277,15 @@ struct QuotaPanel: View {
             Text(window.seconds == 18000 ? "5h" : window.label)
                 .font(.system(size: 13, weight: .regular)).tracking(-0.08)
                 .foregroundStyle(Color.white.opacity(0.55))
-                .padding(.top, 10).padding(.bottom, 4)
+                .frame(height: 15).padding(.top, 10).padding(.bottom, 4)
             HStack(alignment: .lastTextBaseline, spacing: 4) {
                 Text("\(window.remaining)").font(.system(size: 32, weight: .semibold)).tracking(-0.43)
                     .foregroundStyle(Color.white.opacity(0.92))
                 Text("%").font(.system(size: 24)).foregroundStyle(Color.white.opacity(0.25))
-            }.monospacedDigit()
+            }.monospacedDigit().frame(height: 32, alignment: .bottom)
             Text(resetText(window)).font(.system(size: 13, weight: .regular)).tracking(-0.08)
                 .foregroundStyle(Color.white.opacity(0.4))
-                .padding(.top, 4).padding(.bottom, 10)
-                .fixedSize(horizontal: false, vertical: true)
+                .frame(height: 15).padding(.top, 4).padding(.bottom, 10)
             slider(window).frame(height: 24)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -304,6 +313,7 @@ struct QuotaPanel: View {
     }
     private func infoLine(_ text: Text) -> some View {
         text.font(.system(size: 13, weight: .regular)).tracking(-0.08)
+            .frame(height: 15)
             .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 10)
     }
     private func separator() -> some View {
