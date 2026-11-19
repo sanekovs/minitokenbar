@@ -51,7 +51,7 @@ struct QuotaSnapshot {
             }.sorted { $0.seconds < $1.seconds }
         }
         let rawPlan = json["plan_type"] as? String ?? "Subscription"
-        let plan = ["prolite": "Pro · 5×", "pro": "Pro", "plus": "Plus", "free": "Free"][rawPlan] ?? rawPlan.capitalized
+        let plan = ["prolite": "Pro 5x", "pro": "Pro", "plus": "Plus", "free": "Free"][rawPlan] ?? rawPlan.capitalized
         var groups = [QuotaGroup(name: "General usage", windows: windows(json["rate_limit"]))]
         for extra in json["additional_rate_limits"] as? [[String: Any]] ?? [] {
             groups.append(QuotaGroup(name: extra["limit_name"] as? String ?? "Additional usage", windows: windows(extra["rate_limit"])))
@@ -97,12 +97,15 @@ func shouldDismissQuotaPanel(at point: NSPoint, panelFrame: NSRect, statusFrame:
     !panelFrame.contains(point) && statusFrame?.contains(point) != true
 }
 
+// Always dark, like a macOS Control Center item — regardless of the system
+// appearance setting, since this mirrors that fixed-dark design exactly.
 struct FrostedBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .popover
+        view.material = .hudWindow
         view.blendingMode = .behindWindow
         view.state = .active
+        view.appearance = NSAppearance(named: .vibrantDark)
         return view
     }
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
@@ -131,9 +134,9 @@ struct AppMark: View {
             if let image {
                 Image(nsImage: image).resizable().scaledToFill().frame(width: innerSize, height: innerSize)
             } else {
-                Circle().fill(fallback)
+                RoundedRectangle(cornerRadius: 8).fill(fallback)
             }
-        }.frame(width: 24, height: 24).clipShape(Circle())
+        }.frame(width: 24, height: 24).clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityLabel(label)
     }
 }
@@ -153,70 +156,71 @@ struct DevinMark: View {
     var body: some View { AppMark(image: Self.mark, fallback: Color.primary.opacity(0.2), label: "Devin", innerSize: 29) }
 }
 
+// Matches the Figma "Menu" design (macOS Control-Center style): always dark,
+// plain continuous sliders with a knob, no capsule badges — just hierarchy
+// through text color/weight. See node 9772:3749 in the Product/Sandbox file.
 struct QuotaPanel: View {
     @ObservedObject var model: QuotaModel
     @ObservedObject var claudeModel: ClaudeQuotaModel
     @ObservedObject var devinModel: DevinQuotaModel
     let refresh: () -> Void
     let quit: () -> Void
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private static let personalCodexPlans: Set<String> = ["Pro 5x", "Pro", "Plus", "Free"]
+    private var codexTrailing: String? {
+        guard let plan = model.snapshot?.plan, plan != "API" else { return model.snapshot?.plan }
+        return (Self.personalCodexPlans.contains(plan) ? "Personal " : "Corp ") + plan
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button(action: { NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!) }) {
-                    HStack(spacing: 8) {
-                        CodexMark()
-                        Text("ChatGPT").font(.system(size: 14, weight: .semibold))
-                    }
-                }.buttonStyle(.plain).help("Open usage & billing")
-                Spacer()
-                Text(model.snapshot?.plan ?? "Account")
-                    .font(.system(size: 10, weight: .semibold))
-                    .padding(.horizontal, 9).padding(.vertical, 5)
-                    .background(.primary.opacity(0.07), in: Capsule())
-            }.padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 12)
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 14) {
+                    serviceHeader(mark: CodexMark(), title: "Codex", url: "https://chatgpt.com/codex/settings/usage", trailing: codexTrailing)
                     if let snapshot = model.snapshot {
                         if let general = snapshot.groups.first, !general.windows.isEmpty {
-                            HStack(alignment: .top, spacing: 20) {
-                                ForEach(Array(general.windows.enumerated()), id: \.offset) { _, window in
-                                    primaryMetric(window, single: general.windows.count == 1)
-                                }
-                            }.padding(.horizontal, 22)
+                            windowsRow(general.windows)
+                            if snapshot.balance != nil || snapshot.resets != nil {
+                                infoLine(Text("Credits: \(snapshot.balance ?? "—"), Resets: \(snapshot.resets.map(String.init) ?? "—")")
+                                    .foregroundStyle(Color.white.opacity(0.4)))
+                            }
                         } else {
                             Text(snapshot.plan == "API" ? "Subscription usage is not available in API mode." : "No usage window reported.")
-                                .font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 22)
+                                .font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20)
                         }
                     } else {
-                        HStack { ProgressView().controlSize(.small); Text("Loading usage…") }
-                            .font(.system(size: 12)).padding(22)
+                        loadingRow("Loading Codex usage…")
                     }
-                    if let snapshot = model.snapshot {
-                        VStack(spacing: 4) {
-                            HStack {
-                                Text("Credits").foregroundStyle(.secondary)
-                                Spacer()
-                                Text(snapshot.balance ?? "Unavailable").monospacedDigit()
-                            }
-                            HStack {
-                                Text("Usage resets").foregroundStyle(.secondary)
-                                Spacer()
-                                Text(snapshot.resets.map { "\($0) available" } ?? "Unavailable").monospacedDigit()
-                            }
-                        }.font(.system(size: 11)).padding(.horizontal, 22)
+                    if let error = model.error { errorRow(error) }
+                    separator()
+                    serviceHeader(mark: ClaudeMark(), title: "Claude", url: "https://claude.ai/settings/usage", trailing: AccountLabels.claude)
+                    if let snapshot = claudeModel.snapshot {
+                        if let general = snapshot.groups.first, !general.windows.isEmpty {
+                            windowsRow(general.windows)
+                        } else {
+                            Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20)
+                        }
+                    } else {
+                        loadingRow("Loading Claude usage…")
                     }
-                    if let error = model.error {
-                        Label(error, systemImage: "exclamationmark.circle")
-                            .font(.system(size: 11)).foregroundStyle(.orange)
-                            .padding(.horizontal, 22).fixedSize(horizontal: false, vertical: true)
+                    if let error = claudeModel.error { errorRow(error) }
+                    separator()
+                    serviceHeader(mark: DevinMark(), title: "Devin", url: "https://app.devin.ai/settings/usage-limits", trailing: devinModel.snapshot?.accountBadge)
+                    if let snapshot = devinModel.snapshot {
+                        if let general = snapshot.groups.first, !general.windows.isEmpty {
+                            windowsRow(general.windows)
+                        } else {
+                            Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20)
+                        }
+                        if let balance = snapshot.balance {
+                            infoLine(Text("Extra usage: ").foregroundStyle(Color.white.opacity(0.4)) + Text(balance).foregroundStyle(Self.pink))
+                        }
+                    } else {
+                        loadingRow("Loading Devin usage…")
                     }
-                    Divider().padding(.horizontal, 22)
-                    claudeSection
-                    Divider().padding(.horizontal, 22)
-                    devinSection
-                }.padding(.bottom, 8)
+                    if let error = devinModel.error { errorRow(error) }
+                }.padding(.vertical, 13)
             }.scrollIndicators(.hidden)
             HStack(spacing: 7) {
                 Button(action: refresh) { Image(systemName: "arrow.triangle.2.circlepath").frame(width: 25, height: 28) }
@@ -226,145 +230,100 @@ struct QuotaPanel: View {
                 Spacer()
                 Button(action: quit) { Image(systemName: "power").frame(width: 28, height: 28) }
                     .keyboardShortcut("q").help("Quit MiniTokenBar")
-            }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
+            }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Color.white.opacity(0.4))
                 .padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 10)
         }
         .background {
-            if reduceTransparency { Color(nsColor: .windowBackgroundColor) }
-            else {
-                FrostedBackground()
-                    .overlay(scheme == .dark ? Color.black.opacity(0.48) : Color.white.opacity(0.35))
-            }
+            if reduceTransparency { Color(red: 0.08, green: 0.08, blue: 0.09) }
+            else { FrostedBackground().overlay(Color.black.opacity(0.55)) }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 22))
-        .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.primary.opacity(0.1), lineWidth: 0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 34))
+        .overlay(RoundedRectangle(cornerRadius: 34).strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75))
     }
-    private var claudeSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Button(action: { NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/usage")!) }) {
-                    HStack(spacing: 8) {
-                        ClaudeMark()
-                        Text("Claude").font(.system(size: 14, weight: .semibold))
-                    }
-                }.buttonStyle(.plain).help("Open usage & limits")
-                Spacer()
-                if let badge = AccountLabels.claude { accountBadge(badge) }
-            }.padding(.horizontal, 22)
-            if let snapshot = claudeModel.snapshot {
-                if let general = snapshot.groups.first, !general.windows.isEmpty {
-                    HStack(alignment: .top, spacing: 20) {
-                        ForEach(Array(general.windows.enumerated()), id: \.offset) { _, window in
-                            primaryMetric(window, single: general.windows.count == 1)
-                        }
-                    }.padding(.horizontal, 22)
-                    if snapshot.groups.count > 1 {
-                        VStack(spacing: 8) {
-                            ForEach(Array(snapshot.groups.dropFirst().enumerated()), id: \.offset) { _, group in
-                                ForEach(Array(group.windows.enumerated()), id: \.offset) { _, window in
-                                    HStack { Text(group.name).font(.system(size: 11)).foregroundStyle(.secondary); Spacer() }
-                                    additionalRow(window)
-                                }
-                            }
-                        }.padding(.horizontal, 10)
-                    }
-                } else {
-                    Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 22)
+
+    private func serviceHeader(mark: some View, title: String, url: String, trailing: String?) -> some View {
+        HStack(spacing: 8) {
+            Button(action: { NSWorkspace.shared.open(URL(string: url)!) }) {
+                HStack(spacing: 8) {
+                    mark
+                    Text(title).font(.system(size: 17, weight: .semibold)).tracking(-0.43)
+                        .foregroundStyle(Color.white.opacity(0.92))
                 }
-            } else {
-                HStack { ProgressView().controlSize(.small); Text("Loading Claude usage…") }
-                    .font(.system(size: 12)).padding(.horizontal, 22)
+            }.buttonStyle(.plain).help("Open usage & limits")
+            Spacer()
+            if let trailing {
+                Text(trailing).font(.system(size: 13, weight: .medium)).tracking(-0.08)
+                    .foregroundStyle(Color.white.opacity(0.45)).lineLimit(1)
             }
-            if let error = claudeModel.error {
-                Label(error, systemImage: "exclamationmark.circle")
-                    .font(.system(size: 11)).foregroundStyle(.orange)
-                    .padding(.horizontal, 22).fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        }.padding(.horizontal, 20)
     }
-    private var devinSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Button(action: { NSWorkspace.shared.open(URL(string: "https://app.devin.ai/settings/usage-limits")!) }) {
-                    HStack(spacing: 8) {
-                        DevinMark()
-                        Text("Devin").font(.system(size: 14, weight: .semibold))
-                    }
-                }.buttonStyle(.plain).help("Open usage & limits")
-                Spacer()
-                if let badge = devinModel.snapshot?.accountBadge { accountBadge(badge) }
-            }.padding(.horizontal, 22)
-            if let snapshot = devinModel.snapshot {
-                if let general = snapshot.groups.first, !general.windows.isEmpty {
-                    HStack(alignment: .top, spacing: 20) {
-                        ForEach(Array(general.windows.enumerated()), id: \.offset) { _, window in
-                            primaryMetric(window, single: general.windows.count == 1)
-                        }
-                    }.padding(.horizontal, 22)
-                } else {
-                    Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 22)
-                }
-                if let balance = snapshot.balance {
-                    HStack {
-                        Text("Extra usage balance").foregroundStyle(.secondary)
-                        Spacer()
-                        Text(balance).monospacedDigit().foregroundStyle(.red)
-                    }.font(.system(size: 11)).padding(.horizontal, 22)
-                }
-            } else {
-                HStack { ProgressView().controlSize(.small); Text("Loading Devin usage…") }
-                    .font(.system(size: 12)).padding(.horizontal, 22)
-            }
-            if let error = devinModel.error {
-                Label(error, systemImage: "exclamationmark.circle")
-                    .font(.system(size: 11)).foregroundStyle(.orange)
-                    .padding(.horizontal, 22).fixedSize(horizontal: false, vertical: true)
-            }
-        }
+    private func windowsRow(_ windows: [QuotaWindow]) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            ForEach(Array(windows.enumerated()), id: \.offset) { _, window in metricColumn(window) }
+        }.padding(.horizontal, 20)
     }
-    private func accountBadge(_ text: String) -> some View {
-        Text(text).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(.primary.opacity(0.07), in: Capsule())
-            .lineLimit(1).fixedSize()
-    }
-    private func primaryMetric(_ window: QuotaWindow, single: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text("\(window.label) remaining").font(.system(size: 11)).foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline, spacing: 1) {
-                Text("\(window.remaining)").font(.system(size: single ? 50 : 38, weight: .semibold)).tracking(-2)
-                Text("%").font(.system(size: single ? 28 : 20, weight: .medium)).foregroundStyle(.secondary)
-            }.monospacedDigit()
-            meter(window, color: .primary, height: 5)
-            Text(resetText(window)).font(.system(size: 10)).foregroundStyle(.secondary)
+    private func metricColumn(_ window: QuotaWindow) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(window.seconds == 18000 ? "5h" : window.label)
+                .font(.system(size: 13, weight: .medium)).tracking(-0.08)
+                .foregroundStyle(Color.white.opacity(0.55))
+            HStack(alignment: .lastTextBaseline, spacing: 4) {
+                Text("\(window.remaining)").font(.system(size: 40, weight: .semibold)).tracking(-0.43)
+                    .foregroundStyle(Color.white.opacity(0.92))
+                Text("%").font(.system(size: 24)).foregroundStyle(Color.white.opacity(0.25))
+            }.monospacedDigit().padding(.top, 2)
+            Text(resetText(window)).font(.system(size: 13, weight: .medium)).tracking(-0.08)
+                .foregroundStyle(Color.white.opacity(0.4)).padding(.top, 2)
                 .fixedSize(horizontal: false, vertical: true)
+            slider(window).padding(.top, 10)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
-    private func additionalRow(_ window: QuotaWindow) -> some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(window.label).font(.system(size: 11)).foregroundStyle(.secondary)
-                Text(resetText(window)).font(.system(size: 9)).foregroundStyle(.secondary)
-            }.frame(width: 110, alignment: .leading)
-            meter(window, color: scheme == .dark ? Color(red: 0.73, green: 0.65, blue: 0.98) : Color(red: 0.43, green: 0.31, blue: 0.72), height: 18)
-            Text("\(window.remaining)%").font(.system(size: 20, weight: .semibold)).monospacedDigit()
-                .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                .frame(width: 62, alignment: .trailing)
-        }.padding(.vertical, 9)
+    private static let blue = Color(red: 0, green: 0.569, blue: 1)
+    private static let pink = Color(red: 1, green: 0.216, blue: 0.373)
+    private func slider(_ window: QuotaWindow) -> some View {
+        let fraction = CGFloat(max(0, min(100, window.remaining))) / 100
+        let color = window.remaining <= 20 ? Self.pink : Self.blue
+        return GeometryReader { geometry in
+            let knob: CGFloat = 12
+            let width = max(geometry.size.width, knob)
+            let x = knob / 2 + (width - knob) * fraction
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.17)).frame(height: 6)
+                Capsule().fill(color).frame(width: max(6, x + knob / 2), height: 6)
+                Circle().fill(Color(white: 0.95))
+                    .overlay(Circle().stroke(Color.black.opacity(0.25), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.45), radius: 1.5, x: 0, y: 0.5)
+                    .frame(width: knob, height: knob)
+                    .offset(x: x - knob / 2)
+            }
+        }.frame(height: 14).accessibilityLabel("\(window.remaining) percent remaining")
     }
-    private func meter(_ window: QuotaWindow, color: Color, height: CGFloat) -> some View {
-        GeometryReader { geometry in
-            HStack(spacing: 3) {
-                ForEach(0..<20) { index in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(index < Int(ceil(Double(window.remaining) / 5)) ? (window.remaining <= 10 ? Color.orange : color) : .primary.opacity(0.1))
-                }
-            }.frame(width: geometry.size.width)
-        }.frame(height: height).accessibilityLabel("\(window.remaining) percent remaining")
+    private func loadingRow(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(text).foregroundStyle(Color.white.opacity(0.45))
+        }.font(.system(size: 12)).padding(.horizontal, 20)
     }
+    private func errorRow(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.circle")
+            .font(.system(size: 11)).foregroundStyle(.orange)
+            .padding(.horizontal, 20).fixedSize(horizontal: false, vertical: true)
+    }
+    private func infoLine(_ text: Text) -> some View {
+        text.font(.system(size: 13, weight: .medium)).tracking(-0.08).padding(.horizontal, 20)
+    }
+    private func separator() -> some View {
+        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1).padding(.horizontal, 20)
+    }
+    private static let resetFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "d MMM 'at' H:mm"
+        return formatter
+    }()
     private func resetText(_ window: QuotaWindow) -> String {
         guard let date = window.reset else { return "Reset not reported" }
-        return "Resets " + (Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .shortened) : date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
+        return "Resets " + Self.resetFormatter.string(from: date)
     }
 }
 
