@@ -151,7 +151,6 @@ private enum Token {
     static let secondary = Color(white: 138 / 255)   // .secondary #8A8A8A
     static let tertiary = Color(white: 64 / 255)     // .tertiary #404040
     static let separator = Color(white: 26 / 255)    // separators/vibrant #1A1A1A
-    static let pink = Color(red: 1, green: 55 / 255, blue: 95 / 255)
     static let track = Color(red: 120 / 255, green: 120 / 255, blue: 128 / 255).opacity(0.36)
     static let fill = Color.white
     static let cardTint = Color(white: 26 / 255)
@@ -161,25 +160,10 @@ private extension View {
     func vibrant(_ color: Color) -> some View { foregroundStyle(color).blendMode(.plusLighter) }
 }
 
-// The card is Apple's "Liquid Glass - Regular" tinted #1A1A1A. SwiftUI's own
-// glassEffect keeps the glass in the same render tree as the vibrant text.
-// It only exists in the macOS 26 SDK (Swift 6.2), so older toolchains compile
-// the dark-blur fallback instead.
 private struct CardBackground: ViewModifier {
     func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            content.glassEffect(.regular.tint(Token.cardTint.opacity(0.8)), in: RoundedRectangle(cornerRadius: 34, style: .continuous))
-        } else {
-            fallback(content)
-        }
-        #else
-        fallback(content)
-        #endif
-    }
-    private func fallback(_ content: Content) -> some View {
         content
-            .background(Token.cardTint.opacity(0.6))
+            .background(Token.cardTint.opacity(0.88))
             .background(BlurBackground())
             .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
     }
@@ -221,7 +205,7 @@ struct QuotaPanel: View {
             } else if model.error == nil {
                 caption(Text("Loading…"))
             }
-            if let error = model.error { caption(Text(error).foregroundStyle(Token.pink)) }
+            if let error = model.error { caption(Text(error)) }
 
             separator()
             header(ClaudeMark(), "Claude", url: "https://claude.ai/settings/usage", trailing: AccountLabels.claude)
@@ -231,19 +215,19 @@ struct QuotaPanel: View {
             } else if claudeModel.error == nil {
                 caption(Text("Loading…"))
             }
-            if let error = claudeModel.error { caption(Text(error).foregroundStyle(Token.pink)) }
+            if let error = claudeModel.error { caption(Text(error)) }
 
             separator()
             header(DevinMark(), "Devin", url: "https://app.devin.ai/settings/usage-limits", trailing: devinModel.snapshot?.accountTrailing)
             if let snapshot = devinModel.snapshot, let general = snapshot.groups.first, !general.windows.isEmpty {
                 windowsRow(general.windows, caption: resetText)
                 if let extraUsage = snapshot.extraUsageText {
-                    caption(Text("Extra usage: ") + Text(extraUsage).foregroundStyle(Token.pink))
+                    caption(Text("Extra usage: \(extraUsage)"))
                 }
             } else if devinModel.error == nil {
                 caption(Text("Loading…"))
             }
-            if let error = devinModel.error { caption(Text(error).foregroundStyle(Token.pink)) }
+            if let error = devinModel.error { caption(Text(error)) }
         }
         .padding(.horizontal, 20).padding(.vertical, 13)
         .frame(width: 366, alignment: .leading)
@@ -354,7 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // A nonactivating panel must not implicitly hide on app deactivation:
