@@ -154,16 +154,18 @@ private enum Palette {
 }
 
 // The design's card is Apple's "Liquid Glass - Regular" with a dark #1A1A1A tint
-// (its fill layers are 70%/90% #1A1A1A). On macOS 26 that's the real system glass;
-// older systems fall back to a dark blur material.
+// (its fill layers are 70%/90% #1A1A1A). NSGlassEffectView only exists on
+// macOS 26, and naming it directly would break the build on older SDKs/Command
+// Line Tools — so it's looked up at runtime and configured via KVC, with a dark
+// blur fallback everywhere else.
 struct GlassBackground: NSViewRepresentable {
     let cornerRadius: CGFloat
     func makeNSView(context: Context) -> NSView {
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView()
-            glass.style = .regular
-            glass.cornerRadius = cornerRadius
-            glass.tintColor = NSColor(white: 26 / 255, alpha: 0.8)
+        if let glassType = NSClassFromString("NSGlassEffectView") as? NSView.Type {
+            let glass = glassType.init(frame: .zero)
+            glass.setValue(0, forKey: "style") // .regular
+            glass.setValue(cornerRadius, forKey: "cornerRadius")
+            glass.setValue(NSColor(white: 26 / 255, alpha: 0.8), forKey: "tintColor")
             glass.appearance = NSAppearance(named: .darkAqua)
             return glass
         }

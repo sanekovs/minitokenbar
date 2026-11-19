@@ -6,6 +6,8 @@ A tiny native macOS menu-bar app showing your Codex, Claude, and Devin usage lim
 
 ## Install
 
+Needs macOS 14+ and Apple's free Command Line Tools (`xcode-select --install`, no full Xcode). Each service appears once you're signed in to it on this Mac: Codex CLI, Claude Desktop, Devin.
+
 Copy this prompt into any AI coding agent running on your Mac (Codex, Claude Code, Cursor, etc.):
 
 ```text
