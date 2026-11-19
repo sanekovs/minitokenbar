@@ -30,6 +30,7 @@ mkdir -p "$app_dir/Contents/MacOS"
 cp "$binary_dir/MiniTokenBar" "$app_dir/Contents/MacOS/MiniTokenBar"
 cp "$project_dir/support/Info.plist" "$app_dir/Contents/Info.plist"
 mkdir -p "$app_dir/Contents/Resources"
+cp "$project_dir/support/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
 ditto "$binary_dir/MiniTokenBar_MiniTokenBar.bundle" "$app_dir/Contents/Resources/MiniTokenBar_MiniTokenBar.bundle"
 # SwiftPM resource bundling can leave Finder metadata on copied resources, which codesign rejects.
 xattr -rc "$app_dir"

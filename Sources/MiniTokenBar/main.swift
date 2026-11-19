@@ -327,7 +327,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         host = QuotaHostingView(rootView: QuotaPanel(model: model, claudeModel: claudeModel, devinModel: devinModel))
-        host.sizingOptions = []
+        // Needed for fittingSize: with no sizing options NSHostingView reports 0x0,
+        // which made the content-hugging panel zero-height (invisible).
+        host.sizingOptions = [.intrinsicContentSize]
         panel.contentView = host
         outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             self?.dismissIfOutside()
@@ -452,8 +454,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Combines all services into one compact title, e.g. "94%  |  100%  |  12%".
     // Each side shows its tightest remaining window; full detail lives in the panel.
     private func updateStatusTitle() {
-        // Content height changes as data/errors arrive; keep the panel hugging it.
-        if panel.isVisible { positionPanel() }
+        // Content height changes as data/errors arrive; re-measure once SwiftUI has re-rendered.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.panel.isVisible else { return }
+            self.positionPanel()
+        }
         func text(prefix: String, percent: Int?, failed: Bool, placeholder: String) -> String {
             guard let percent else { return failed ? "\(prefix) !" : placeholder }
             return failed ? "\(percent)% !" : "\(percent)%"
