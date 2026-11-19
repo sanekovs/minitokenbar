@@ -3,7 +3,7 @@ set -euo pipefail
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 test_file="$(mktemp /tmp/quota-insights-test.XXXXXX.swift)"
 trap 'rm -f "$test_file"' EXIT
-cat "$project_dir/Sources/CodexQuota/Insights.swift" > "$test_file"
+cat "$project_dir/Sources/MiniTokenBar/Insights.swift" > "$test_file"
 cat >> "$test_file" <<'SWIFT'
 assert(ProfileActivity.parse([:]) == nil)
 assert(ProfileActivity.parse(["stats": [:], "metadata": ["stats_error": "unavailable"]]) == nil)

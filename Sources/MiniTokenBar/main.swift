@@ -71,16 +71,23 @@ final class QuotaModel: ObservableObject {
     @Published var loading = false
     @Published var error: String?
     @Published var updated: Date?
-    @Published var insights = InsightsResult()
-    @Published var insightsLoading = false
-    @Published var insightsUpdated: Date?
+}
+final class ClaudeQuotaModel: ObservableObject {
+    @Published var snapshot: ClaudeQuotaSnapshot?
+    @Published var loading = false
+    @Published var error: String?
+}
+final class DevinQuotaModel: ObservableObject {
+    @Published var snapshot: DevinQuotaSnapshot?
+    @Published var loading = false
+    @Published var error: String?
 }
 
 // Keep the entire panel on the screen containing the status item, including
 // secondary displays with negative origins and displays above the main screen.
 func quotaPanelFrame(anchor: NSRect, visibleFrame: NSRect) -> NSRect {
     let safe = visibleFrame.insetBy(dx: 10, dy: 10)
-    let size = NSSize(width: min(340, safe.width), height: min(474, safe.height))
+    let size = NSSize(width: min(340, safe.width), height: min(640, safe.height))
     return NSRect(x: min(max(anchor.maxX - size.width, safe.minX), safe.maxX - size.width),
                   y: min(max(anchor.minY - size.height - 8, safe.minY), safe.maxY - size.height),
                   width: size.width, height: size.height)
@@ -101,44 +108,76 @@ struct FrostedBackground: NSViewRepresentable {
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
-struct BlossomMark: View {
-    private static let mark: NSImage? = {
-        let installed = Bundle.main.url(forResource: "CodexQuota_CodexQuota", withExtension: "bundle").flatMap { Bundle(url: $0) }
-        let resources = installed ?? Bundle.module
-        guard let url = resources.url(forResource: "blossom-white", withExtension: "svg", subdirectory: "Resources") else { return nil }
-        return NSImage(contentsOf: url)
-    }()
+private func loadMark(_ name: String) -> NSImage? {
+    let installed = Bundle.main.url(forResource: "MiniTokenBar_MiniTokenBar", withExtension: "bundle").flatMap { Bundle(url: $0) }
+    let resources = installed ?? Bundle.module
+    guard let url = resources.url(forResource: name, withExtension: "png", subdirectory: "Resources") else { return nil }
+    return NSImage(contentsOf: url)
+}
+
+// Source app icons keep a transparent margin around their squircle artwork, so a
+// plain circular clip just reveals that margin's corners instead of a filled
+// circle. Oversizing the image before clipping crops the margin away so the
+// artwork bleeds edge-to-edge. The oversample factor is measured per icon from
+// its actual opaque-content bounding box (24 / contentFraction) so each mark is
+// cropped just enough — too much makes the artwork look pinched/cropped.
+struct AppMark: View {
+    let image: NSImage?
+    let fallback: Color
+    let label: String
+    var innerSize: CGFloat = 24
     var body: some View {
         Group {
-            if let mark = Self.mark {
-                Image(nsImage: mark).resizable().scaledToFit().frame(width: 46, height: 46)
-            } else { Text("◌").font(.system(size: 22)) }
-        }.frame(width: 24, height: 24)
-            .background(Color.black.opacity(0.65), in: Circle())
-            .accessibilityLabel("OpenAI Blossom")
+            if let image {
+                Image(nsImage: image).resizable().scaledToFill().frame(width: innerSize, height: innerSize)
+            } else {
+                Circle().fill(fallback)
+            }
+        }.frame(width: 24, height: 24).clipShape(Circle())
+            .accessibilityLabel(label)
     }
+}
+
+struct CodexMark: View {
+    private static let mark = loadMark("codex-mark")
+    var body: some View { AppMark(image: Self.mark, fallback: Color.black.opacity(0.65), label: "Codex", innerSize: 24) }
+}
+
+struct ClaudeMark: View {
+    private static let mark = loadMark("claude-mark")
+    var body: some View { AppMark(image: Self.mark, fallback: Color(red: 0.82, green: 0.45, blue: 0.32), label: "Claude", innerSize: 28) }
+}
+
+struct DevinMark: View {
+    private static let mark = loadMark("devin-mark")
+    var body: some View { AppMark(image: Self.mark, fallback: Color.primary.opacity(0.2), label: "Devin", innerSize: 29) }
 }
 
 struct QuotaPanel: View {
     @ObservedObject var model: QuotaModel
+    @ObservedObject var claudeModel: ClaudeQuotaModel
+    @ObservedObject var devinModel: DevinQuotaModel
     let refresh: () -> Void
     let quit: () -> Void
-    @State private var expanded: Set<String> = []
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                BlossomMark()
-                Text("ChatGPT").font(.system(size: 14, weight: .semibold))
+                Button(action: { NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!) }) {
+                    HStack(spacing: 8) {
+                        CodexMark()
+                        Text("ChatGPT").font(.system(size: 14, weight: .semibold))
+                    }
+                }.buttonStyle(.plain).help("Open usage & billing")
                 Spacer()
                 Text(model.snapshot?.plan ?? "Account")
                     .font(.system(size: 10, weight: .semibold))
                     .padding(.horizontal, 9).padding(.vertical, 5)
                     .background(.primary.opacity(0.07), in: Capsule())
-            }.padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 16)
+            }.padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 12)
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 12) {
                     if let snapshot = model.snapshot {
                         if let general = snapshot.groups.first, !general.windows.isEmpty {
                             HStack(alignment: .top, spacing: 20) {
@@ -150,59 +189,33 @@ struct QuotaPanel: View {
                             Text(snapshot.plan == "API" ? "Subscription usage is not available in API mode." : "No usage window reported.")
                                 .font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 22)
                         }
-                        VStack(spacing: 8) {
-                            ForEach(Array(snapshot.groups.dropFirst().enumerated()), id: \.offset) { index, group in
-                                disclosure(group.name == "GPT-5.3-Codex-Spark" ? "GPT-5.3-Codex usage limits" : group.name, id: "limits-\(index)", summary: group.windows.map { "\($0.remaining)%" }.joined(separator: " / ")) {
-                                    ForEach(Array(group.windows.enumerated()), id: \.offset) { _, window in additionalRow(window) }
-                                }
-                            }
-                            disclosure("Activity", id: "activity", summary: activitySummary) {
-                                if let profile = model.insights.profile {
-                                    HStack {
-                                        smallMetric("Lifetime tokens", value: compactCount(profile.tokens))
-                                        smallMetric("Current streak", value: profile.streak.map { "\($0) days" } ?? "—")
-                                    }
-                                    miniBars(recentActivity(profile.days, count: 28), color: .primary)
-                                    HStack {
-                                        Text("Last 28 days · tokens")
-                                        Spacer()
-                                        Text(profile.chats.map { "\($0) chats" } ?? "")
-                                    }.font(.system(size: 9)).foregroundStyle(.secondary)
-                                } else { unavailableInsights }
-                            }
-                            disclosure("Analytics", id: "analytics", summary: analyticsSummary) {
-                                if let analytics = model.insights.analytics {
-                                    HStack {
-                                        smallMetric("Turns · 7 days", value: compactCount(analytics.turns))
-                                        smallMetric("Credits spent", value: analytics.credits.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? "—")
-                                    }
-                                    miniBars(recentActivity(analytics.days, count: 7), color: .orange)
-                                    ForEach(Array(analytics.models.prefix(2).enumerated()), id: \.offset) { _, model in
-                                        HStack {
-                                            Text(model.name).lineLimit(1)
-                                            Spacer()
-                                            Text("\(Int(model.turns)) turns").monospacedDigit()
-                                        }.font(.system(size: 10)).foregroundStyle(.secondary)
-                                    }
-                                    Text("Work & Codex · UTC · may lag up to 6h")
-                                        .font(.system(size: 9)).foregroundStyle(.secondary)
-                                } else { unavailableInsights }
-                            }
-                            HStack(alignment: .top, spacing: 20) {
-                                smallMetric("Credits", value: snapshot.balance ?? "Unavailable")
-                                smallMetric("Usage resets", value: snapshot.resets.map { "\($0) available" } ?? "Unavailable")
-                            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
-                        }.padding(.horizontal, 10)
                     } else {
                         HStack { ProgressView().controlSize(.small); Text("Loading usage…") }
                             .font(.system(size: 12)).padding(22)
+                    }
+                    if let snapshot = model.snapshot {
+                        VStack(spacing: 4) {
+                            HStack {
+                                Text("Credits").foregroundStyle(.secondary)
+                                Spacer()
+                                Text(snapshot.balance ?? "Unavailable").monospacedDigit()
+                            }
+                            HStack {
+                                Text("Usage resets").foregroundStyle(.secondary)
+                                Spacer()
+                                Text(snapshot.resets.map { "\($0) available" } ?? "Unavailable").monospacedDigit()
+                            }
+                        }.font(.system(size: 11)).padding(.horizontal, 22)
                     }
                     if let error = model.error {
                         Label(error, systemImage: "exclamationmark.circle")
                             .font(.system(size: 11)).foregroundStyle(.orange)
                             .padding(.horizontal, 22).fixedSize(horizontal: false, vertical: true)
                     }
+                    Divider().padding(.horizontal, 22)
+                    claudeSection
+                    Divider().padding(.horizontal, 22)
+                    devinSection
                 }.padding(.bottom, 8)
             }.scrollIndicators(.hidden)
             HStack(spacing: 7) {
@@ -211,11 +224,8 @@ struct QuotaPanel: View {
                 Text(model.loading ? "Syncing…" : model.updated.map { "Synced \($0.formatted(date: .omitted, time: .shortened))" } ?? "Not synced")
                     .font(.system(size: 10))
                 Spacer()
-                Button(action: { NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!) }) {
-                    Image(systemName: "arrow.up.right").frame(width: 28, height: 28)
-                }.help("Open usage & billing")
                 Button(action: quit) { Image(systemName: "power").frame(width: 28, height: 28) }
-                    .keyboardShortcut("q").help("Quit CodexQuota")
+                    .keyboardShortcut("q").help("Quit MiniTokenBar")
             }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
                 .padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 10)
         }
@@ -229,45 +239,94 @@ struct QuotaPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.primary.opacity(0.1), lineWidth: 0.5))
     }
-    private var activitySummary: String {
-        guard let profile = model.insights.profile else { return model.insightsLoading ? "Syncing…" : "Unavailable" }
-        return compactCount(profile.tokens) + (profile.streak.map { " · \($0)d" } ?? "")
-    }
-    private var analyticsSummary: String {
-        guard let analytics = model.insights.analytics else { return model.insightsLoading ? "Syncing…" : "Unavailable" }
-        return "\(compactCount(analytics.turns)) turns · 7d"
-    }
-    private var unavailableInsights: some View {
-        Text(model.insightsLoading ? "Loading account statistics…" : "Statistics are unavailable for this account. Try refreshing.")
-            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-    }
-    private func disclosure<Content: View>(_ title: String, id: String, summary: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Button {
-                if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(title).font(.system(size: title.count > 24 ? 10 : 12, weight: .medium)).lineLimit(1)
-                    Spacer(minLength: 4)
-                    Text(summary).font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
-                    Image(systemName: expanded.contains(id) ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
-                }.frame(maxWidth: .infinity).contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityValue(expanded.contains(id) ? "Expanded" : "Collapsed")
-            if expanded.contains(id) { content() }
-        }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
-    }
-    private func miniBars(_ days: [DailyActivity], color: Color) -> some View {
-        let maximum = max(days.map(\.value).max() ?? 0, 1)
-        return HStack(alignment: .bottom, spacing: 4) {
-            if days.isEmpty { Text("No activity reported").font(.system(size: 10)).foregroundStyle(.secondary) }
-            ForEach(days) { day in
-                RoundedRectangle(cornerRadius: 2).fill(color.opacity(day.value > 0 ? 0.65 : 0.12))
-                    .frame(maxWidth: .infinity).frame(height: max(2, 32 * day.value / maximum))
-                    .help(day.reported ? "\(day.date): \(compactCount(day.value))" : "\(day.date): not reported")
+    private var claudeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Button(action: { NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/usage")!) }) {
+                    HStack(spacing: 8) {
+                        ClaudeMark()
+                        Text("Claude").font(.system(size: 14, weight: .semibold))
+                    }
+                }.buttonStyle(.plain).help("Open usage & limits")
+                Spacer()
+                if let badge = AccountLabels.claude { accountBadge(badge) }
+            }.padding(.horizontal, 22)
+            if let snapshot = claudeModel.snapshot {
+                if let general = snapshot.groups.first, !general.windows.isEmpty {
+                    HStack(alignment: .top, spacing: 20) {
+                        ForEach(Array(general.windows.enumerated()), id: \.offset) { _, window in
+                            primaryMetric(window, single: general.windows.count == 1)
+                        }
+                    }.padding(.horizontal, 22)
+                    if snapshot.groups.count > 1 {
+                        VStack(spacing: 8) {
+                            ForEach(Array(snapshot.groups.dropFirst().enumerated()), id: \.offset) { _, group in
+                                ForEach(Array(group.windows.enumerated()), id: \.offset) { _, window in
+                                    HStack { Text(group.name).font(.system(size: 11)).foregroundStyle(.secondary); Spacer() }
+                                    additionalRow(window)
+                                }
+                            }
+                        }.padding(.horizontal, 10)
+                    }
+                } else {
+                    Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 22)
+                }
+            } else {
+                HStack { ProgressView().controlSize(.small); Text("Loading Claude usage…") }
+                    .font(.system(size: 12)).padding(.horizontal, 22)
             }
-        }.frame(height: 34).accessibilityLabel("Daily activity")
+            if let error = claudeModel.error {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.system(size: 11)).foregroundStyle(.orange)
+                    .padding(.horizontal, 22).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+    private var devinSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Button(action: { NSWorkspace.shared.open(URL(string: "https://app.devin.ai/settings/usage-limits")!) }) {
+                    HStack(spacing: 8) {
+                        DevinMark()
+                        Text("Devin").font(.system(size: 14, weight: .semibold))
+                    }
+                }.buttonStyle(.plain).help("Open usage & limits")
+                Spacer()
+                if let badge = devinModel.snapshot?.accountBadge { accountBadge(badge) }
+            }.padding(.horizontal, 22)
+            if let snapshot = devinModel.snapshot {
+                if let general = snapshot.groups.first, !general.windows.isEmpty {
+                    HStack(alignment: .top, spacing: 20) {
+                        ForEach(Array(general.windows.enumerated()), id: \.offset) { _, window in
+                            primaryMetric(window, single: general.windows.count == 1)
+                        }
+                    }.padding(.horizontal, 22)
+                } else {
+                    Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 22)
+                }
+                if let balance = snapshot.balance {
+                    HStack {
+                        Text("Extra usage balance").foregroundStyle(.secondary)
+                        Spacer()
+                        Text(balance).monospacedDigit().foregroundStyle(.red)
+                    }.font(.system(size: 11)).padding(.horizontal, 22)
+                }
+            } else {
+                HStack { ProgressView().controlSize(.small); Text("Loading Devin usage…") }
+                    .font(.system(size: 12)).padding(.horizontal, 22)
+            }
+            if let error = devinModel.error {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.system(size: 11)).foregroundStyle(.orange)
+                    .padding(.horizontal, 22).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+    private func accountBadge(_ text: String) -> some View {
+        Text(text).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(.primary.opacity(0.07), in: Capsule())
+            .lineLimit(1).fixedSize()
     }
     private func primaryMetric(_ window: QuotaWindow, single: Bool) -> some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -307,12 +366,6 @@ struct QuotaPanel: View {
         guard let date = window.reset else { return "Reset not reported" }
         return "Resets " + (Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .shortened) : date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
     }
-    private func smallMetric(_ label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 15, weight: .medium)).monospacedDigit()
-        }.frame(maxWidth: .infinity, alignment: .leading)
-    }
 }
 
 final class QuotaHostingView: NSHostingView<QuotaPanel> {
@@ -332,10 +385,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var outsideMonitor: Any?
     private var localMonitor: Any?
     private let model = QuotaModel()
+    private let claudeModel = ClaudeQuotaModel()
+    private let devinModel = DevinQuotaModel()
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "Codex …"
+        statusItem.button?.title = "Codex …  |  Claude …  |  Devin …"
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
@@ -349,7 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // AppKit can leave isVisible true even while the panel is hidden.
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        let host = QuotaHostingView(rootView: QuotaPanel(model: model, refresh: { [weak self] in self?.refresh() }, quit: { NSApp.terminate(nil) }))
+        let host = QuotaHostingView(rootView: QuotaPanel(model: model, claudeModel: claudeModel, devinModel: devinModel, refresh: { [weak self] in self?.refresh() }, quit: { NSApp.terminate(nil) }))
         host.sizingOptions = []
         panel.contentView = host
         outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -403,7 +458,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { showPanel() }
     }
     private func refresh() {
-        refreshInsights()
+        refreshClaude()
+        refreshDevin()
         guard !model.loading else { return }
         model.loading = true
         Task { @MainActor [weak self] in
@@ -416,27 +472,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.model.snapshot = snapshot
                     self.model.error = nil
                     self.model.updated = Date()
-                    self.statusItem.button?.title = snapshot.menuTitle
                     if self.panel.isVisible { self.positionPanel() }
-                    self.statusItem.button?.toolTip = "Codex · " + snapshot.groups.flatMap { group in group.windows.map { "\(group.name), \($0.label): \($0.remaining)% left" } }.joined(separator: "\n")
                 case .failure(let error):
                     self.model.error = error.localizedDescription
-                    self.statusItem.button?.title = self.model.snapshot.map { "\($0.menuTitle) !" } ?? "Codex !"
-                    self.statusItem.button?.toolTip = "Could not refresh. Displayed usage may be outdated."
                 }
+                self.updateStatusTitle()
             }
         }
     }
-    private func refreshInsights() {
-        guard !model.insightsLoading else { return }
-        model.insightsLoading = true
+    private func refreshClaude() {
+        guard !claudeModel.loading else { return }
+        claudeModel.loading = true
         Task { @MainActor [weak self] in
-            let result = await InsightsService.fetch()
             guard let self else { return }
-            self.model.insights = result
-            self.model.insightsUpdated = Date()
-            self.model.insightsLoading = false
+            switch ClaudeQuota.fetch() {
+            case .success(let snapshot):
+                self.claudeModel.snapshot = snapshot
+                self.claudeModel.error = nil
+            case .failure(let error):
+                self.claudeModel.error = error.localizedDescription
+            }
+            self.claudeModel.loading = false
+            self.updateStatusTitle()
         }
+    }
+    private func refreshDevin() {
+        guard !devinModel.loading else { return }
+        devinModel.loading = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            switch DevinQuota.fetch() {
+            case .success(let snapshot):
+                self.devinModel.snapshot = snapshot
+                self.devinModel.error = nil
+            case .failure(let error):
+                self.devinModel.error = error.localizedDescription
+            }
+            self.devinModel.loading = false
+            self.updateStatusTitle()
+        }
+    }
+    // Combines all services into one compact title, e.g. "94%  |  100%  |  12%".
+    // Each side shows its tightest remaining window; full detail lives in the panel.
+    private func updateStatusTitle() {
+        func text(prefix: String, percent: Int?, failed: Bool, placeholder: String) -> String {
+            guard let percent else { return failed ? "\(prefix) !" : placeholder }
+            return failed ? "\(percent)% !" : "\(percent)%"
+        }
+        let codexPercent = model.snapshot?.groups.first?.windows.map(\.remaining).min()
+        let codexText = text(prefix: "Codex", percent: codexPercent, failed: model.error != nil, placeholder: "Codex …")
+        let claudeText = text(prefix: "Claude", percent: claudeModel.snapshot?.menuPercent, failed: claudeModel.error != nil, placeholder: "Claude …")
+        let devinText = text(prefix: "Devin", percent: devinModel.snapshot?.menuPercent, failed: devinModel.error != nil, placeholder: "Devin …")
+        statusItem.button?.attributedTitle = Self.statusTitle(codex: codexText, claude: claudeText, devin: devinText)
+        var tooltipParts: [String] = []
+        if let snapshot = model.snapshot {
+            tooltipParts.append("Codex · " + snapshot.groups.flatMap { group in group.windows.map { "\(group.name), \($0.label): \($0.remaining)% left" } }.joined(separator: "\n"))
+        }
+        if let error = model.error { tooltipParts.append("Codex: \(error)") }
+        if let snapshot = claudeModel.snapshot {
+            tooltipParts.append("Claude · " + snapshot.groups.flatMap { group in group.windows.map { "\(group.name), \($0.label): \($0.remaining)% left" } }.joined(separator: "\n"))
+        }
+        if let error = claudeModel.error { tooltipParts.append("Claude: \(error)") }
+        if let snapshot = devinModel.snapshot {
+            tooltipParts.append("Devin · " + snapshot.groups.flatMap { group in group.windows.map { "\(group.name), \($0.label): \($0.remaining)% left" } }.joined(separator: "\n"))
+        }
+        if let error = devinModel.error { tooltipParts.append("Devin: \(error)") }
+        statusItem.button?.toolTip = tooltipParts.isEmpty ? nil : tooltipParts.joined(separator: "\n\n")
+    }
+    // Thin, translucent, vertically-centered dividers between each service's number.
+    private static func statusTitle(codex: String, claude: String, devin: String) -> NSAttributedString {
+        let numberFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        let numberAttrs: [NSAttributedString.Key: Any] = [.font: numberFont]
+        let separatorAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .ultraLight),
+            .foregroundColor: NSColor.labelColor.withAlphaComponent(0.28),
+            .baselineOffset: 0.5,
+        ]
+        let result = NSMutableAttributedString(string: codex, attributes: numberAttrs)
+        for segment in [claude, devin] {
+            result.append(NSAttributedString(string: " ", attributes: numberAttrs))
+            result.append(NSAttributedString(string: "│", attributes: separatorAttrs))
+            result.append(NSAttributedString(string: " ", attributes: numberAttrs))
+            result.append(NSAttributedString(string: segment, attributes: numberAttrs))
+        }
+        return result
     }
     private static func fetchQuota() async -> Result<QuotaSnapshot, Error> {
         do {
@@ -461,7 +580,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return .success(QuotaSnapshot.parse(json))
         } catch { return .failure(error) }
     }
-    private static func failure(_ message: String) -> NSError { NSError(domain: "CodexQuota", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
+    private static func failure(_ message: String) -> NSError { NSError(domain: "MiniTokenBar", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
 }
 
 let appDelegate = AppDelegate()

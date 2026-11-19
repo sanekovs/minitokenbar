@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "CodexQuota",
+    name: "MiniTokenBar",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "CodexQuota", targets: ["CodexQuota"])],
-    targets: [.executableTarget(name: "CodexQuota", resources: [.copy("Resources")])],
+    products: [.executable(name: "MiniTokenBar", targets: ["MiniTokenBar"])],
+    targets: [.executableTarget(name: "MiniTokenBar", resources: [.copy("Resources")])],
     swiftLanguageVersions: [.v5]
 )
