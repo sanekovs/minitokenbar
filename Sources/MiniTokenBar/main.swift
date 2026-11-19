@@ -143,7 +143,6 @@ struct DevinMark: View {
 // Rows stack edge-to-edge; each row's own padding is the spacing:
 // header 38, label 29, number 32, bar 24, caption 29, separator 25.
 private enum Palette {
-    static let background = Color(white: 26 / 255)
     static let title = Color(white: 179 / 255)
     static let trailing = Color(white: 164 / 255)
     static let label = Color(white: 179 / 255)
@@ -152,6 +151,30 @@ private enum Palette {
     static let track = Color(red: 60 / 255, green: 60 / 255, blue: 63 / 255)
     static let separator = Color(white: 52 / 255)
     static let pink = Color(red: 1, green: 55 / 255, blue: 95 / 255)
+}
+
+// The design's card is Apple's "Liquid Glass - Regular" with a dark #1A1A1A tint
+// (its fill layers are 70%/90% #1A1A1A). On macOS 26 that's the real system glass;
+// older systems fall back to a dark blur material.
+struct GlassBackground: NSViewRepresentable {
+    let cornerRadius: CGFloat
+    func makeNSView(context: Context) -> NSView {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = cornerRadius
+            glass.tintColor = NSColor(white: 26 / 255, alpha: 0.8)
+            glass.appearance = NSAppearance(named: .darkAqua)
+            return glass
+        }
+        let blur = NSVisualEffectView()
+        blur.material = .hudWindow
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        blur.appearance = NSAppearance(named: .vibrantDark)
+        return blur
+    }
+    func updateNSView(_ view: NSView, context: Context) {}
 }
 
 struct QuotaPanel: View {
@@ -205,15 +228,8 @@ struct QuotaPanel: View {
         .padding(.horizontal, 20).padding(.vertical, 13)
         .frame(width: 366, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .background(Palette.background)
-        .overlay(alignment: .top) {
-            LinearGradient(colors: [Color.white.opacity(0.03), .clear], startPoint: .top, endPoint: .bottom).frame(height: 40)
-        }
+        .background(GlassBackground(cornerRadius: 34))
         .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 34, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [Color.white.opacity(0.2), Color.white.opacity(0.04)], startPoint: .top, endPoint: .center), lineWidth: 1)
-        )
         .environment(\.colorScheme, .dark)
     }
 

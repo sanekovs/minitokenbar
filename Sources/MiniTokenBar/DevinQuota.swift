@@ -27,16 +27,11 @@ struct DevinQuotaSnapshot {
         guard let planName else { return nil }
         return planName.lowercased().contains("team") ? "Corporate" : "Personal"
     }
-    // The design's fixed "$X / $Y" look; the denominator isn't in this cache,
-    // so it only appears once the user sets it (see AccountLabels).
-    // Whole dollars in en_US ("$93"), as in the design.
+    // Only what Devin's cache really has: the remaining extra-usage balance.
+    var extraUsageText: String? { balance.map { "\($0) left" } }
+    // Whole dollars in en_US ("$93").
     static func dollars(_ value: Double) -> String {
         value.formatted(.currency(code: "USD").locale(Locale(identifier: "en_US")).precision(.fractionLength(0)))
-    }
-    var extraUsageText: String? {
-        guard let balance else { return nil }
-        guard let limit = AccountLabels.devinExtraUsageLimit else { return balance }
-        return "\(balance) / \(Self.dollars(limit))"
     }
 }
 

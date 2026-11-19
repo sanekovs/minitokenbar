@@ -2,8 +2,7 @@ import Foundation
 
 // Manual, user-edited labels for services that don't locally expose which
 // account/org you're signed into (Claude Desktop only caches a bare org UUID).
-// Edit ~/Library/Application Support/MiniTokenBar/labels.json, e.g.
-// {"claude": "Corporate", "devinExtraUsageLimit": 500}.
+// Edit ~/Library/Application Support/MiniTokenBar/labels.json, e.g. {"claude": "Corporate"}.
 enum AccountLabels {
     private static var fileURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -15,7 +14,4 @@ enum AccountLabels {
         return json
     }
     static var claude: String? { (values["claude"] as? String).flatMap { $0.isEmpty ? nil : $0 } }
-    // Devin's cache has no org-wide spend cap, only the remaining overage balance.
-    // Set "devinExtraUsageLimit" (a number, e.g. 500) to show "$93 / $500".
-    static var devinExtraUsageLimit: Double? { (values["devinExtraUsageLimit"] as? NSNumber)?.doubleValue }
 }
