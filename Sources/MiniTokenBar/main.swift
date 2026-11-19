@@ -252,7 +252,7 @@ struct QuotaPanel: View {
             }.buttonStyle(.plain).help("Open usage & limits")
             Spacer()
             if let trailing {
-                Text(trailing).font(.system(size: 13, weight: .medium)).tracking(-0.08)
+                Text(trailing).font(.system(size: 13, weight: .regular)).tracking(-0.08)
                     .foregroundStyle(Color.white.opacity(0.45)).lineLimit(1)
             }
         }.padding(.horizontal, 20).padding(.vertical, 10)
@@ -265,7 +265,7 @@ struct QuotaPanel: View {
     private func metricColumn(_ window: QuotaWindow) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(window.seconds == 18000 ? "5h" : window.label)
-                .font(.system(size: 13, weight: .medium)).tracking(-0.08)
+                .font(.system(size: 13, weight: .regular)).tracking(-0.08)
                 .foregroundStyle(Color.white.opacity(0.55))
                 .padding(.top, 10).padding(.bottom, 4)
             HStack(alignment: .lastTextBaseline, spacing: 4) {
@@ -273,7 +273,7 @@ struct QuotaPanel: View {
                     .foregroundStyle(Color.white.opacity(0.92))
                 Text("%").font(.system(size: 24)).foregroundStyle(Color.white.opacity(0.25))
             }.monospacedDigit()
-            Text(resetText(window)).font(.system(size: 13, weight: .medium)).tracking(-0.08)
+            Text(resetText(window)).font(.system(size: 13, weight: .regular)).tracking(-0.08)
                 .foregroundStyle(Color.white.opacity(0.4))
                 .padding(.top, 4).padding(.bottom, 10)
                 .fixedSize(horizontal: false, vertical: true)
@@ -303,7 +303,7 @@ struct QuotaPanel: View {
             .padding(.horizontal, 20).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
     }
     private func infoLine(_ text: Text) -> some View {
-        text.font(.system(size: 13, weight: .medium)).tracking(-0.08)
+        text.font(.system(size: 13, weight: .regular)).tracking(-0.08)
             .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 10)
     }
     private func separator() -> some View {
