@@ -138,37 +138,55 @@ struct DevinMark: View {
     var body: some View { AppMark(image: Self.mark, label: "Devin", inset: 2.37) }
 }
 
-// 1:1 with Figma node 9772:3749. Colors are sampled from the rendered export
-// (opaque #1A1A1A card, so solid grays rather than translucent whites).
-// Rows stack edge-to-edge; each row's own padding is the spacing:
-// header 38, label 29, number 32, bar 24, caption 29, separator 25.
-private enum Palette {
-    static let title = Color(white: 179 / 255)
-    static let trailing = Color(white: 164 / 255)
-    static let label = Color(white: 179 / 255)
-    static let number = Color.white
-    static let dim = Color(white: 90 / 255)
-    static let track = Color(red: 60 / 255, green: 60 / 255, blue: 63 / 255)
-    static let separator = Color(white: 52 / 255)
+// Design tokens from Figma node 9772:3749. Text and separators are drawn with
+// the "plus lighter" blend over the card (macOS vibrancy) — on the dark card
+// that reproduces the export exactly (e.g. #404040 + #1A1A1A = #5A5A5A), and
+// over the glass it brightens with whatever shows through. The bar track is
+// the translucent system fill with normal blending; the bar fill is plain white.
+private enum Token {
+    static let title = Color.white.opacity(0.6)
+    static let label = Color.white.opacity(0.6)
+    static let number = Color(white: 245 / 255)      // .primary #F5F5F5
+    static let percent = Color.white.opacity(0.25)
+    static let secondary = Color(white: 138 / 255)   // .secondary #8A8A8A
+    static let tertiary = Color(white: 64 / 255)     // .tertiary #404040
+    static let separator = Color(white: 26 / 255)    // separators/vibrant #1A1A1A
     static let pink = Color(red: 1, green: 55 / 255, blue: 95 / 255)
+    static let track = Color(red: 120 / 255, green: 120 / 255, blue: 128 / 255).opacity(0.36)
+    static let fill = Color.white
+    static let cardTint = Color(white: 26 / 255)
 }
 
-// The design's card is Apple's "Liquid Glass - Regular" with a dark #1A1A1A tint
-// (its fill layers are 70%/90% #1A1A1A). NSGlassEffectView only exists on
-// macOS 26, and naming it directly would break the build on older SDKs/Command
-// Line Tools — so it's looked up at runtime and configured via KVC, with a dark
-// blur fallback everywhere else.
-struct GlassBackground: NSViewRepresentable {
-    let cornerRadius: CGFloat
-    func makeNSView(context: Context) -> NSView {
-        if let glassType = NSClassFromString("NSGlassEffectView") as? NSView.Type {
-            let glass = glassType.init(frame: .zero)
-            glass.setValue(0, forKey: "style") // .regular
-            glass.setValue(cornerRadius, forKey: "cornerRadius")
-            glass.setValue(NSColor(white: 26 / 255, alpha: 0.8), forKey: "tintColor")
-            glass.appearance = NSAppearance(named: .darkAqua)
-            return glass
+private extension View {
+    func vibrant(_ color: Color) -> some View { foregroundStyle(color).blendMode(.plusLighter) }
+}
+
+// The card is Apple's "Liquid Glass - Regular" tinted #1A1A1A. SwiftUI's own
+// glassEffect keeps the glass in the same render tree as the vibrant text.
+// It only exists in the macOS 26 SDK (Swift 6.2), so older toolchains compile
+// the dark-blur fallback instead.
+private struct CardBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular.tint(Token.cardTint.opacity(0.8)), in: RoundedRectangle(cornerRadius: 34, style: .continuous))
+        } else {
+            fallback(content)
         }
+        #else
+        fallback(content)
+        #endif
+    }
+    private func fallback(_ content: Content) -> some View {
+        content
+            .background(Token.cardTint.opacity(0.6))
+            .background(BlurBackground())
+            .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+    }
+}
+
+private struct BlurBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
         let blur = NSVisualEffectView()
         blur.material = .hudWindow
         blur.blendingMode = .behindWindow
@@ -176,7 +194,7 @@ struct GlassBackground: NSViewRepresentable {
         blur.appearance = NSAppearance(named: .vibrantDark)
         return blur
     }
-    func updateNSView(_ view: NSView, context: Context) {}
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 struct QuotaPanel: View {
@@ -203,38 +221,34 @@ struct QuotaPanel: View {
             } else if model.error == nil {
                 caption(Text("Loading…"))
             }
-            if let error = model.error { caption(Text(error).foregroundStyle(Palette.pink)) }
+            if let error = model.error { caption(Text(error).foregroundStyle(Token.pink)) }
 
             separator()
             header(ClaudeMark(), "Claude", url: "https://claude.ai/settings/usage", trailing: AccountLabels.claude)
             if let snapshot = claudeModel.snapshot, let general = snapshot.groups.first, !general.windows.isEmpty {
                 // Claude Desktop's cache has no reset times; show how fresh the numbers are instead.
                 windowsRow(general.windows) { _ in "As of " + Self.resetFormatter.string(from: snapshot.sampledAt) }
-                if snapshot.isStale {
-                    caption(Text("Outdated: open Claude's menu-bar icon to refresh").foregroundStyle(Palette.pink))
-                }
             } else if claudeModel.error == nil {
                 caption(Text("Loading…"))
             }
-            if let error = claudeModel.error { caption(Text(error).foregroundStyle(Palette.pink)) }
+            if let error = claudeModel.error { caption(Text(error).foregroundStyle(Token.pink)) }
 
             separator()
             header(DevinMark(), "Devin", url: "https://app.devin.ai/settings/usage-limits", trailing: devinModel.snapshot?.accountTrailing)
             if let snapshot = devinModel.snapshot, let general = snapshot.groups.first, !general.windows.isEmpty {
                 windowsRow(general.windows, caption: resetText)
                 if let extraUsage = snapshot.extraUsageText {
-                    caption(Text("Extra usage: ") + Text(extraUsage).foregroundStyle(Palette.pink))
+                    caption(Text("Extra usage: ") + Text(extraUsage).foregroundStyle(Token.pink))
                 }
             } else if devinModel.error == nil {
                 caption(Text("Loading…"))
             }
-            if let error = devinModel.error { caption(Text(error).foregroundStyle(Palette.pink)) }
+            if let error = devinModel.error { caption(Text(error).foregroundStyle(Token.pink)) }
         }
         .padding(.horizontal, 20).padding(.vertical, 13)
         .frame(width: 366, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .background(GlassBackground(cornerRadius: 34))
-        .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+        .modifier(CardBackground())
         .environment(\.colorScheme, .dark)
     }
 
@@ -244,14 +258,14 @@ struct QuotaPanel: View {
                 HStack(spacing: 8) {
                     mark
                     Text(title).font(.system(size: 15, weight: .medium)).tracking(-0.43)
-                        .foregroundStyle(Palette.title)
+                        .vibrant(Token.title)
                         .frame(height: 18).padding(.vertical, 10)
                 }.contentShape(Rectangle())
             }.buttonStyle(.plain).help("Open usage & limits")
             Spacer(minLength: 0)
             if let trailing {
                 Text(trailing).font(.system(size: 13, weight: .regular)).tracking(-0.08)
-                    .foregroundStyle(Palette.trailing).lineLimit(1).frame(height: 15)
+                    .vibrant(Token.secondary).lineLimit(1).frame(height: 15)
             }
         }.frame(height: 38)
     }
@@ -261,12 +275,12 @@ struct QuotaPanel: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(window.seconds == 18000 ? "5h" : window.label)
                         .font(.system(size: 13, weight: .regular)).tracking(-0.08)
-                        .foregroundStyle(Palette.label)
+                        .vibrant(Token.label)
                         .frame(height: 15).padding(.top, 10).padding(.bottom, 4)
                     HStack(alignment: .lastTextBaseline, spacing: 4) {
                         Text("\(window.remaining)").font(.system(size: 32, weight: .medium)).tracking(-0.43)
-                            .foregroundStyle(Palette.number)
-                        Text("%").font(.system(size: 24, weight: .regular)).foregroundStyle(Palette.dim)
+                            .vibrant(Token.number)
+                        Text("%").font(.system(size: 24, weight: .regular)).vibrant(Token.percent)
                     }.monospacedDigit().frame(height: 32, alignment: .bottom)
                     bar(window).frame(height: 24)
                     self.caption(Text(caption(window)))
@@ -278,18 +292,18 @@ struct QuotaPanel: View {
         let fraction = CGFloat(max(0, min(100, window.remaining))) / 100
         return GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(Palette.track)
-                Capsule().fill(Color.white).frame(width: max(6, geometry.size.width * fraction))
+                RoundedRectangle(cornerRadius: 3).fill(Token.track)
+                RoundedRectangle(cornerRadius: 3).fill(Token.fill).frame(width: max(6, geometry.size.width * fraction))
             }
         }.frame(height: 6).accessibilityLabel("\(window.remaining) percent remaining")
     }
     private func caption(_ text: Text) -> some View {
         text.font(.system(size: 13, weight: .regular)).tracking(-0.08)
-            .foregroundStyle(Palette.dim).lineLimit(1)
+            .foregroundStyle(Token.tertiary).lineLimit(1).blendMode(.plusLighter)
             .frame(height: 15).padding(.top, 4).padding(.bottom, 10)
     }
     private func separator() -> some View {
-        Rectangle().fill(Palette.separator).frame(height: 1).padding(.vertical, 12)
+        Rectangle().fill(Token.separator).blendMode(.plusLighter).frame(height: 1).padding(.vertical, 12)
     }
     private static let resetFormatter: DateFormatter = {
         let formatter = DateFormatter()
