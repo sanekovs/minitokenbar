@@ -20,15 +20,19 @@ enum DevinQuotaError: LocalizedError {
 struct DevinQuotaSnapshot {
     let groups: [QuotaGroup]
     let planName: String?
-    let accountLabel: String?
     let balance: String?
     var menuPercent: Int? { groups.flatMap { $0.windows }.map(\.remaining).min() }
-    // "name@domain - Org Name" -> "Org Name"; falls back to the plan name.
-    var accountBadge: String? {
-        if let label = accountLabel, let range = label.range(of: " - ") {
-            return String(label[range.upperBound...])
-        }
-        return planName
+    // Teams-tier plans are paid by an organization; everything else is an individual plan.
+    var accountTrailing: String? {
+        guard let planName else { return nil }
+        return planName.lowercased().contains("team") ? "Corporate" : "Personal"
+    }
+    // The design's fixed "$X / $Y" look; the denominator isn't in this cache,
+    // so it only appears once the user sets it (see AccountLabels).
+    var extraUsageText: String? {
+        guard let balance else { return nil }
+        guard let limit = AccountLabels.devinExtraUsageLimit else { return balance }
+        return "\(balance) / \(limit.formatted(.currency(code: "USD").precision(.fractionLength(0))))"
     }
 }
 
@@ -70,6 +74,6 @@ enum DevinQuota {
         let balance = ((json["quota"] as? [String: Any])?["overageBalanceMicros"] as? NSNumber).map {
             ($0.doubleValue / 1_000_000).formatted(.currency(code: "USD").precision(.fractionLength(0...2)))
         }
-        return .success(DevinQuotaSnapshot(groups: groups, planName: json["planName"] as? String, accountLabel: json["accountIdentityText"] as? String, balance: balance))
+        return .success(DevinQuotaSnapshot(groups: groups, planName: json["planName"] as? String, balance: balance))
     }
 }

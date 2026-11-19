@@ -206,15 +206,15 @@ struct QuotaPanel: View {
                     }
                     if let error = claudeModel.error { errorRow(error) }
                     separator()
-                    serviceHeader(mark: DevinMark(), title: "Devin", url: "https://app.devin.ai/settings/usage-limits", trailing: devinModel.snapshot?.accountBadge)
+                    serviceHeader(mark: DevinMark(), title: "Devin", url: "https://app.devin.ai/settings/usage-limits", trailing: devinModel.snapshot?.accountTrailing)
                     if let snapshot = devinModel.snapshot {
                         if let general = snapshot.groups.first, !general.windows.isEmpty {
                             windowsRow(general.windows)
                         } else {
                             Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20).padding(.vertical, 10)
                         }
-                        if let balance = snapshot.balance {
-                            infoLine(Text("Extra usage: ").foregroundStyle(Color.white.opacity(0.4)) + Text(balance).foregroundStyle(Self.pink))
+                        if let extraUsage = snapshot.extraUsageText {
+                            infoLine(Text("Extra usage: ").foregroundStyle(Color.white.opacity(0.4)) + Text(extraUsage).foregroundStyle(Self.pink))
                         }
                     } else {
                         loadingRow("Loading Devin usage…")
@@ -246,7 +246,7 @@ struct QuotaPanel: View {
             Button(action: { NSWorkspace.shared.open(URL(string: url)!) }) {
                 HStack(spacing: 8) {
                     mark
-                    Text(title).font(.system(size: 17, weight: .semibold)).tracking(-0.43)
+                    Text(title).font(.system(size: 15, weight: .semibold)).tracking(-0.43)
                         .foregroundStyle(Color.white.opacity(0.92))
                 }
             }.buttonStyle(.plain).help("Open usage & limits")
@@ -269,7 +269,7 @@ struct QuotaPanel: View {
                 .foregroundStyle(Color.white.opacity(0.55))
                 .padding(.top, 10).padding(.bottom, 4)
             HStack(alignment: .lastTextBaseline, spacing: 4) {
-                Text("\(window.remaining)").font(.system(size: 40, weight: .semibold)).tracking(-0.43)
+                Text("\(window.remaining)").font(.system(size: 32, weight: .semibold)).tracking(-0.43)
                     .foregroundStyle(Color.white.opacity(0.92))
                 Text("%").font(.system(size: 24)).foregroundStyle(Color.white.opacity(0.25))
             }.monospacedDigit()
@@ -277,28 +277,19 @@ struct QuotaPanel: View {
                 .foregroundStyle(Color.white.opacity(0.4))
                 .padding(.top, 4).padding(.bottom, 10)
                 .fixedSize(horizontal: false, vertical: true)
-            slider(window).frame(height: 26)
+            slider(window).frame(height: 24)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
-    private static let blue = Color(red: 0, green: 0.569, blue: 1)
     private static let pink = Color(red: 1, green: 0.216, blue: 0.373)
+    // No knob, no red/blue split — a plain white fill on a gray track.
     private func slider(_ window: QuotaWindow) -> some View {
         let fraction = CGFloat(max(0, min(100, window.remaining))) / 100
-        let color = window.remaining <= 20 ? Self.pink : Self.blue
         return GeometryReader { geometry in
-            let knob: CGFloat = 12
-            let width = max(geometry.size.width, knob)
-            let x = knob / 2 + (width - knob) * fraction
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.17)).frame(height: 6)
-                Capsule().fill(color).frame(width: max(6, x + knob / 2), height: 6)
-                Circle().fill(Color(white: 0.95))
-                    .overlay(Circle().stroke(Color.black.opacity(0.25), lineWidth: 0.5))
-                    .shadow(color: .black.opacity(0.45), radius: 1.5, x: 0, y: 0.5)
-                    .frame(width: knob, height: knob)
-                    .offset(x: x - knob / 2)
+                Capsule().fill(Color.white).frame(width: max(6, geometry.size.width * fraction), height: 6)
             }
-        }.frame(height: 14).accessibilityLabel("\(window.remaining) percent remaining")
+        }.frame(height: 6).accessibilityLabel("\(window.remaining) percent remaining")
     }
     private func loadingRow(_ text: String) -> some View {
         HStack(spacing: 6) {
