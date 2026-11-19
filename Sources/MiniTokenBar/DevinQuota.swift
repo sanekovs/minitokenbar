@@ -29,10 +29,14 @@ struct DevinQuotaSnapshot {
     }
     // The design's fixed "$X / $Y" look; the denominator isn't in this cache,
     // so it only appears once the user sets it (see AccountLabels).
+    // Whole dollars in en_US ("$93"), as in the design.
+    static func dollars(_ value: Double) -> String {
+        value.formatted(.currency(code: "USD").locale(Locale(identifier: "en_US")).precision(.fractionLength(0)))
+    }
     var extraUsageText: String? {
         guard let balance else { return nil }
         guard let limit = AccountLabels.devinExtraUsageLimit else { return balance }
-        return "\(balance) / \(limit.formatted(.currency(code: "USD").precision(.fractionLength(0))))"
+        return "\(balance) / \(Self.dollars(limit))"
     }
 }
 
@@ -72,7 +76,7 @@ enum DevinQuota {
 
         let groups = [QuotaGroup(name: "General usage", windows: windows.sorted { $0.seconds < $1.seconds })]
         let balance = ((json["quota"] as? [String: Any])?["overageBalanceMicros"] as? NSNumber).map {
-            ($0.doubleValue / 1_000_000).formatted(.currency(code: "USD").precision(.fractionLength(0...2)))
+            DevinQuotaSnapshot.dollars(($0.doubleValue / 1_000_000).rounded(.down))
         }
         return .success(DevinQuotaSnapshot(groups: groups, planName: json["planName"] as? String, balance: balance))
     }

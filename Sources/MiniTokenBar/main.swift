@@ -60,7 +60,7 @@ struct QuotaSnapshot {
         let balance: String?
         if credits?["unlimited"] as? Bool == true { balance = "Unlimited" }
         else if let raw = credits?["balance"] as? String, let number = Double(raw) {
-            balance = number.formatted(.currency(code: "USD").precision(.fractionLength(0...2)))
+            balance = number.formatted(.currency(code: "USD").locale(Locale(identifier: "en_US")).precision(.fractionLength(0...2)))
         } else { balance = nil }
         let resets = (json["rate_limit_reset_credits"] as? [String: Any])?["available_count"] as? Int
         return QuotaSnapshot(plan: plan, groups: groups, balance: balance, resets: resets)
@@ -70,7 +70,6 @@ final class QuotaModel: ObservableObject {
     @Published var snapshot: QuotaSnapshot?
     @Published var loading = false
     @Published var error: String?
-    @Published var updated: Date?
 }
 final class ClaudeQuotaModel: ObservableObject {
     @Published var snapshot: ClaudeQuotaSnapshot?
@@ -85,11 +84,9 @@ final class DevinQuotaModel: ObservableObject {
 
 // Keep the entire panel on the screen containing the status item, including
 // secondary displays with negative origins and displays above the main screen.
-func quotaPanelFrame(anchor: NSRect, visibleFrame: NSRect) -> NSRect {
+func quotaPanelFrame(anchor: NSRect, visibleFrame: NSRect, contentHeight: CGFloat = 590) -> NSRect {
     let safe = visibleFrame.insetBy(dx: 10, dy: 10)
-    // Content is ~590pt (exact Figma height) + ~42pt footer = ~632pt; cap with
-    // real headroom so it's never one SwiftUI font-metric away from clipping.
-    let size = NSSize(width: min(340, safe.width), height: min(700, safe.height))
+    let size = NSSize(width: min(366, safe.width), height: min(contentHeight, safe.height))
     return NSRect(x: min(max(anchor.maxX - size.width, safe.minX), safe.maxX - size.width),
                   y: min(max(anchor.minY - size.height - 8, safe.minY), safe.maxY - size.height),
                   width: size.width, height: size.height)
@@ -99,20 +96,6 @@ func shouldDismissQuotaPanel(at point: NSPoint, panelFrame: NSRect, statusFrame:
     !panelFrame.contains(point) && statusFrame?.contains(point) != true
 }
 
-// Always dark, like a macOS Control Center item — regardless of the system
-// appearance setting, since this mirrors that fixed-dark design exactly.
-struct FrostedBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .hudWindow
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.appearance = NSAppearance(named: .vibrantDark)
-        return view
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
-}
-
 private func loadMark(_ name: String) -> NSImage? {
     let installed = Bundle.main.url(forResource: "MiniTokenBar_MiniTokenBar", withExtension: "bundle").flatMap { Bundle(url: $0) }
     let resources = installed ?? Bundle.module
@@ -120,205 +103,172 @@ private func loadMark(_ name: String) -> NSImage? {
     return NSImage(contentsOf: url)
 }
 
-// Source app icons keep a transparent margin around their squircle artwork, so a
-// plain circular clip just reveals that margin's corners instead of a filled
-// circle. Oversizing the image before clipping crops the margin away so the
-// artwork bleeds edge-to-edge. The oversample factor is measured per icon from
-// its actual opaque-content bounding box (24 / contentFraction) so each mark is
-// cropped just enough — too much makes the artwork look pinched/cropped.
+// Icon assets are exported from the Figma design itself: 24pt tiles, 8pt corners.
+// Devin's asset has no tile of its own, so it sits inset on a white tile.
 struct AppMark: View {
     let image: NSImage?
-    let fallback: Color
     let label: String
-    var innerSize: CGFloat = 24
+    var inset: CGFloat = 0
     var body: some View {
-        Group {
+        ZStack {
+            if inset > 0 { Color.white }
             if let image {
-                Image(nsImage: image).resizable().scaledToFill().frame(width: innerSize, height: innerSize)
-            } else {
-                RoundedRectangle(cornerRadius: 8).fill(fallback)
+                Image(nsImage: image).resizable().scaledToFill()
+                    .frame(width: 24 - inset * 2, height: 24 - inset * 2)
+                    .clipShape(RoundedRectangle(cornerRadius: inset > 0 ? 4.5 : 8, style: .continuous))
             }
-        }.frame(width: 24, height: 24).clipShape(RoundedRectangle(cornerRadius: 8))
+        }.frame(width: 24, height: 24)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .accessibilityLabel(label)
     }
 }
 
 struct CodexMark: View {
     private static let mark = loadMark("codex-mark")
-    var body: some View { AppMark(image: Self.mark, fallback: Color.black.opacity(0.65), label: "Codex", innerSize: 24) }
+    var body: some View { AppMark(image: Self.mark, label: "Codex") }
 }
 
 struct ClaudeMark: View {
     private static let mark = loadMark("claude-mark")
-    var body: some View { AppMark(image: Self.mark, fallback: Color(red: 0.82, green: 0.45, blue: 0.32), label: "Claude", innerSize: 28) }
+    var body: some View { AppMark(image: Self.mark, label: "Claude") }
 }
 
 struct DevinMark: View {
     private static let mark = loadMark("devin-mark")
-    var body: some View { AppMark(image: Self.mark, fallback: Color.primary.opacity(0.2), label: "Devin", innerSize: 29) }
+    var body: some View { AppMark(image: Self.mark, label: "Devin", inset: 2.37) }
 }
 
-// Matches the Figma "Menu" design (macOS Control-Center style): always dark,
-// plain continuous sliders with a knob, no capsule badges — just hierarchy
-// through text color/weight. See node 9772:3749 in the Product/Sandbox file.
+// 1:1 with Figma node 9772:3749. Colors are sampled from the rendered export
+// (opaque #1A1A1A card, so solid grays rather than translucent whites).
+// Rows stack edge-to-edge; each row's own padding is the spacing:
+// header 38, label 29, number 32, bar 24, caption 29, separator 25.
+private enum Palette {
+    static let background = Color(white: 26 / 255)
+    static let title = Color(white: 179 / 255)
+    static let trailing = Color(white: 164 / 255)
+    static let label = Color(white: 179 / 255)
+    static let number = Color.white
+    static let dim = Color(white: 90 / 255)
+    static let track = Color(red: 60 / 255, green: 60 / 255, blue: 63 / 255)
+    static let separator = Color(white: 52 / 255)
+    static let pink = Color(red: 1, green: 55 / 255, blue: 95 / 255)
+}
+
 struct QuotaPanel: View {
     @ObservedObject var model: QuotaModel
     @ObservedObject var claudeModel: ClaudeQuotaModel
     @ObservedObject var devinModel: DevinQuotaModel
-    let refresh: () -> Void
-    let quit: () -> Void
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private static let personalCodexPlans: Set<String> = ["Pro 5x", "Pro", "Plus", "Free"]
     private var codexTrailing: String? {
         guard let plan = model.snapshot?.plan, plan != "API" else { return model.snapshot?.plan }
-        return (Self.personalCodexPlans.contains(plan) ? "Personal " : "Corp ") + plan
+        return (Self.personalCodexPlans.contains(plan) ? "Personal " : "Corporate ") + plan
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    serviceHeader(mark: CodexMark(), title: "Codex", url: "https://chatgpt.com/codex/settings/usage", trailing: codexTrailing)
-                    if let snapshot = model.snapshot {
-                        if let general = snapshot.groups.first, !general.windows.isEmpty {
-                            windowsRow(general.windows)
-                            if snapshot.balance != nil || snapshot.resets != nil {
-                                infoLine(Text("Credits: \(snapshot.balance ?? "—"), Resets: \(snapshot.resets.map(String.init) ?? "—")")
-                                    .foregroundStyle(Color.white.opacity(0.4)))
-                            }
-                        } else {
-                            Text(snapshot.plan == "API" ? "Subscription usage is not available in API mode." : "No usage window reported.")
-                                .font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20).padding(.vertical, 10)
-                        }
-                    } else {
-                        loadingRow("Loading Codex usage…")
-                    }
-                    if let error = model.error { errorRow(error) }
-                    separator()
-                    serviceHeader(mark: ClaudeMark(), title: "Claude", url: "https://claude.ai/settings/usage", trailing: AccountLabels.claude)
-                    if let snapshot = claudeModel.snapshot {
-                        if let general = snapshot.groups.first, !general.windows.isEmpty {
-                            windowsRow(general.windows)
-                        } else {
-                            Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20).padding(.vertical, 10)
-                        }
-                    } else {
-                        loadingRow("Loading Claude usage…")
-                    }
-                    if let error = claudeModel.error { errorRow(error) }
-                    separator()
-                    serviceHeader(mark: DevinMark(), title: "Devin", url: "https://app.devin.ai/settings/usage-limits", trailing: devinModel.snapshot?.accountTrailing)
-                    if let snapshot = devinModel.snapshot {
-                        if let general = snapshot.groups.first, !general.windows.isEmpty {
-                            windowsRow(general.windows)
-                        } else {
-                            Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20).padding(.vertical, 10)
-                        }
-                        if let extraUsage = snapshot.extraUsageText {
-                            infoLine(Text("Extra usage: ").foregroundStyle(Color.white.opacity(0.4)) + Text(extraUsage).foregroundStyle(Self.pink))
-                        }
-                    } else {
-                        loadingRow("Loading Devin usage…")
-                    }
-                    if let error = devinModel.error { errorRow(error) }
-                }.padding(.vertical, 13)
-            }.scrollIndicators(.hidden)
-            HStack(spacing: 7) {
-                Button(action: refresh) { Image(systemName: "arrow.triangle.2.circlepath").frame(width: 25, height: 28) }
-                    .disabled(model.loading).keyboardShortcut("r").help("Refresh usage")
-                Text(model.loading ? "Syncing…" : model.updated.map { "Synced \($0.formatted(date: .omitted, time: .shortened))" } ?? "Not synced")
-                    .font(.system(size: 10))
-                Spacer()
-                Button(action: quit) { Image(systemName: "power").frame(width: 28, height: 28) }
-                    .keyboardShortcut("q").help("Quit MiniTokenBar")
-            }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Color.white.opacity(0.4))
-                .padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 10)
+        VStack(alignment: .leading, spacing: 0) {
+            header(CodexMark(), "Codex", url: "https://chatgpt.com/codex/settings/usage", trailing: codexTrailing)
+            if let snapshot = model.snapshot, let general = snapshot.groups.first, !general.windows.isEmpty {
+                windowsRow(general.windows, caption: resetText)
+                if snapshot.balance != nil || snapshot.resets != nil {
+                    caption(Text("Credits: \(snapshot.balance ?? "—"), Resets: \(snapshot.resets.map(String.init) ?? "—")"))
+                }
+            } else if let snapshot = model.snapshot {
+                caption(Text(snapshot.plan == "API" ? "Subscription usage is not available in API mode." : "No usage window reported."))
+            } else if model.error == nil {
+                caption(Text("Loading…"))
+            }
+            if let error = model.error { caption(Text(error).foregroundStyle(Palette.pink)) }
+
+            separator()
+            header(ClaudeMark(), "Claude", url: "https://claude.ai/settings/usage", trailing: AccountLabels.claude)
+            if let snapshot = claudeModel.snapshot, let general = snapshot.groups.first, !general.windows.isEmpty {
+                // Claude Desktop's cache has no reset times; show how fresh the numbers are instead.
+                windowsRow(general.windows) { _ in "As of " + Self.resetFormatter.string(from: snapshot.sampledAt) }
+            } else if claudeModel.error == nil {
+                caption(Text("Loading…"))
+            }
+            if let error = claudeModel.error { caption(Text(error).foregroundStyle(Palette.pink)) }
+
+            separator()
+            header(DevinMark(), "Devin", url: "https://app.devin.ai/settings/usage-limits", trailing: devinModel.snapshot?.accountTrailing)
+            if let snapshot = devinModel.snapshot, let general = snapshot.groups.first, !general.windows.isEmpty {
+                windowsRow(general.windows, caption: resetText)
+                if let extraUsage = snapshot.extraUsageText {
+                    caption(Text("Extra usage: ") + Text(extraUsage).foregroundStyle(Palette.pink))
+                }
+            } else if devinModel.error == nil {
+                caption(Text("Loading…"))
+            }
+            if let error = devinModel.error { caption(Text(error).foregroundStyle(Palette.pink)) }
         }
-        .background {
-            if reduceTransparency { Color(red: 0.08, green: 0.08, blue: 0.09) }
-            else { FrostedBackground().overlay(Color.black.opacity(0.55)) }
+        .padding(.horizontal, 20).padding(.vertical, 13)
+        .frame(width: 366, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(Palette.background)
+        .overlay(alignment: .top) {
+            LinearGradient(colors: [Color.white.opacity(0.03), .clear], startPoint: .top, endPoint: .bottom).frame(height: 40)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 34))
-        .overlay(RoundedRectangle(cornerRadius: 34).strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75))
+        .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .strokeBorder(LinearGradient(colors: [Color.white.opacity(0.2), Color.white.opacity(0.04)], startPoint: .top, endPoint: .center), lineWidth: 1)
+        )
+        .environment(\.colorScheme, .dark)
     }
 
-    // Every row below packs edge-to-edge in the design (metadata shows zero gap
-    // between siblings — each row's own text padding IS the spacing). Heights
-    // are forced with .frame so SwiftUI's font metrics can't inflate them:
-    // header 38 (18 + pad 10/10), label 29 (15 + pad 10/4), number 32 (no pad),
-    // reset 29 (15 + pad 4/10), slider 24. A column totals 29+32+29+24=114,
-    // matching the Figma frame exactly.
-    private func serviceHeader(mark: some View, title: String, url: String, trailing: String?) -> some View {
-        HStack(spacing: 8) {
+    private func header(_ mark: some View, _ title: String, url: String, trailing: String?) -> some View {
+        HStack(spacing: 6) {
             Button(action: { NSWorkspace.shared.open(URL(string: url)!) }) {
                 HStack(spacing: 8) {
                     mark
-                    Text(title).font(.system(size: 15, weight: .semibold)).tracking(-0.43)
-                        .foregroundStyle(Color.white.opacity(0.92))
+                    Text(title).font(.system(size: 15, weight: .medium)).tracking(-0.43)
+                        .foregroundStyle(Palette.title)
                         .frame(height: 18).padding(.vertical, 10)
-                }
+                }.contentShape(Rectangle())
             }.buttonStyle(.plain).help("Open usage & limits")
-            Spacer()
+            Spacer(minLength: 0)
             if let trailing {
                 Text(trailing).font(.system(size: 13, weight: .regular)).tracking(-0.08)
-                    .foregroundStyle(Color.white.opacity(0.45)).lineLimit(1)
-                    .frame(height: 15)
+                    .foregroundStyle(Palette.trailing).lineLimit(1).frame(height: 15)
             }
-        }.padding(.horizontal, 20)
+        }.frame(height: 38)
     }
-    private func windowsRow(_ windows: [QuotaWindow]) -> some View {
+    private func windowsRow(_ windows: [QuotaWindow], caption: @escaping (QuotaWindow) -> String) -> some View {
         HStack(alignment: .top, spacing: 16) {
-            ForEach(Array(windows.enumerated()), id: \.offset) { _, window in metricColumn(window) }
-        }.padding(.horizontal, 20)
+            ForEach(Array(windows.enumerated()), id: \.offset) { _, window in
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(window.seconds == 18000 ? "5h" : window.label)
+                        .font(.system(size: 13, weight: .regular)).tracking(-0.08)
+                        .foregroundStyle(Palette.label)
+                        .frame(height: 15).padding(.top, 10).padding(.bottom, 4)
+                    HStack(alignment: .lastTextBaseline, spacing: 4) {
+                        Text("\(window.remaining)").font(.system(size: 32, weight: .medium)).tracking(-0.43)
+                            .foregroundStyle(Palette.number)
+                        Text("%").font(.system(size: 24, weight: .regular)).foregroundStyle(Palette.dim)
+                    }.monospacedDigit().frame(height: 32, alignment: .bottom)
+                    bar(window).frame(height: 24)
+                    self.caption(Text(caption(window)))
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
-    private func metricColumn(_ window: QuotaWindow) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(window.seconds == 18000 ? "5h" : window.label)
-                .font(.system(size: 13, weight: .regular)).tracking(-0.08)
-                .foregroundStyle(Color.white.opacity(0.55))
-                .frame(height: 15).padding(.top, 10).padding(.bottom, 4)
-            HStack(alignment: .lastTextBaseline, spacing: 4) {
-                Text("\(window.remaining)").font(.system(size: 32, weight: .semibold)).tracking(-0.43)
-                    .foregroundStyle(Color.white.opacity(0.92))
-                Text("%").font(.system(size: 24)).foregroundStyle(Color.white.opacity(0.25))
-            }.monospacedDigit().frame(height: 32, alignment: .bottom)
-            Text(resetText(window)).font(.system(size: 13, weight: .regular)).tracking(-0.08)
-                .foregroundStyle(Color.white.opacity(0.4))
-                .frame(height: 15).padding(.top, 4).padding(.bottom, 10)
-            slider(window).frame(height: 24)
-        }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-    private static let pink = Color(red: 1, green: 0.216, blue: 0.373)
-    // No knob, no red/blue split — a plain white fill on a gray track.
-    private func slider(_ window: QuotaWindow) -> some View {
+    private func bar(_ window: QuotaWindow) -> some View {
         let fraction = CGFloat(max(0, min(100, window.remaining))) / 100
         return GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.17)).frame(height: 6)
-                Capsule().fill(Color.white).frame(width: max(6, geometry.size.width * fraction), height: 6)
+                Capsule().fill(Palette.track)
+                Capsule().fill(Color.white).frame(width: max(6, geometry.size.width * fraction))
             }
         }.frame(height: 6).accessibilityLabel("\(window.remaining) percent remaining")
     }
-    private func loadingRow(_ text: String) -> some View {
-        HStack(spacing: 6) {
-            ProgressView().controlSize(.small)
-            Text(text).foregroundStyle(Color.white.opacity(0.45))
-        }.font(.system(size: 12)).padding(.horizontal, 20).padding(.vertical, 10)
-    }
-    private func errorRow(_ text: String) -> some View {
-        Label(text, systemImage: "exclamationmark.circle")
-            .font(.system(size: 11)).foregroundStyle(.orange)
-            .padding(.horizontal, 20).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
-    }
-    private func infoLine(_ text: Text) -> some View {
+    private func caption(_ text: Text) -> some View {
         text.font(.system(size: 13, weight: .regular)).tracking(-0.08)
-            .frame(height: 15)
-            .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 10)
+            .foregroundStyle(Palette.dim).lineLimit(1)
+            .frame(height: 15).padding(.top, 4).padding(.bottom, 10)
     }
     private func separator() -> some View {
-        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            .padding(.horizontal, 20).padding(.vertical, 12)
+        Rectangle().fill(Palette.separator).frame(height: 1).padding(.vertical, 12)
     }
     private static let resetFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -351,6 +301,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = QuotaModel()
     private let claudeModel = ClaudeQuotaModel()
     private let devinModel = DevinQuotaModel()
+    private var host: QuotaHostingView!
+    private lazy var contextMenu: NSMenu = {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Refresh", action: #selector(refreshFromMenu), keyEquivalent: "r").target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit MiniTokenBar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        return menu
+    }()
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -358,7 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.sendAction(on: [.leftMouseUp])
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -368,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // AppKit can leave isVisible true even while the panel is hidden.
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        let host = QuotaHostingView(rootView: QuotaPanel(model: model, claudeModel: claudeModel, devinModel: devinModel, refresh: { [weak self] in self?.refresh() }, quit: { NSApp.terminate(nil) }))
+        host = QuotaHostingView(rootView: QuotaPanel(model: model, claudeModel: claudeModel, devinModel: devinModel))
         host.sizingOptions = []
         panel.contentView = host
         outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -377,6 +335,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self, self.panel.isVisible else { return event }
             if event.type == .keyDown && event.keyCode == 53 { self.panel.orderOut(nil); return nil }
+            if event.type == .keyDown, event.modifierFlags.contains(.command) {
+                switch event.charactersIgnoringModifiers {
+                case "q": NSApp.terminate(nil); return nil
+                case "r": self.refresh(); return nil
+                default: break
+                }
+            }
             if event.type != .keyDown { self.dismissIfOutside() }
             return event
         }
@@ -415,12 +380,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSScreen.screens.first { $0.frame.contains(NSPoint(x: anchor.midX, y: anchor.midY)) }
         }) ?? NSScreen.main else { return }
         let anchor = anchorFrame ?? NSRect(x: screen.visibleFrame.maxX - 30, y: screen.visibleFrame.maxY, width: 20, height: 20)
-        panel.setFrame(quotaPanelFrame(anchor: anchor, visibleFrame: screen.visibleFrame), display: true)
+        // The panel hugs its content (the design has no empty footer space).
+        let height = host.fittingSize.height
+        panel.setFrame(quotaPanelFrame(anchor: anchor, visibleFrame: screen.visibleFrame, contentHeight: height), display: true)
     }
     @objc private func togglePopover() {
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            panel.orderOut(nil)
+            statusItem.menu = contextMenu
+            statusItem.button?.performClick(nil)
+            statusItem.menu = nil
+            return
+        }
         if panel.isVisible { panel.orderOut(nil) }
         else { showPanel() }
     }
+    @objc private func refreshFromMenu() { refresh() }
     private func refresh() {
         refreshClaude()
         refreshDevin()
@@ -435,8 +410,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .success(let snapshot):
                     self.model.snapshot = snapshot
                     self.model.error = nil
-                    self.model.updated = Date()
-                    if self.panel.isVisible { self.positionPanel() }
                 case .failure(let error):
                     self.model.error = error.localizedDescription
                 }
@@ -479,6 +452,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Combines all services into one compact title, e.g. "94%  |  100%  |  12%".
     // Each side shows its tightest remaining window; full detail lives in the panel.
     private func updateStatusTitle() {
+        // Content height changes as data/errors arrive; keep the panel hugging it.
+        if panel.isVisible { positionPanel() }
         func text(prefix: String, percent: Int?, failed: Bool, placeholder: String) -> String {
             guard let percent else { return failed ? "\(prefix) !" : placeholder }
             return failed ? "\(percent)% !" : "\(percent)%"
