@@ -23,6 +23,10 @@ struct ClaudeQuotaSnapshot {
     let sampledAt: Date
     // The tightest remaining percentage across all windows; used for the compact menu-bar figure.
     var menuPercent: Int? { groups.flatMap { $0.windows }.map(\.remaining).min() }
+    // Claude Desktop stops refreshing this cache when its menu-bar icon hasn't
+    // been opened for 24h ("background poll paused" in its log), so old samples
+    // must not pass for current numbers.
+    var isStale: Bool { Date().timeIntervalSince(sampledAt) > 15 * 60 }
 }
 
 enum ClaudeQuota {

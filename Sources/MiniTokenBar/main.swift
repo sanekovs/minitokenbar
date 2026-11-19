@@ -210,6 +210,9 @@ struct QuotaPanel: View {
             if let snapshot = claudeModel.snapshot, let general = snapshot.groups.first, !general.windows.isEmpty {
                 // Claude Desktop's cache has no reset times; show how fresh the numbers are instead.
                 windowsRow(general.windows) { _ in "As of " + Self.resetFormatter.string(from: snapshot.sampledAt) }
+                if snapshot.isStale {
+                    caption(Text("Outdated: open Claude's menu-bar icon to refresh").foregroundStyle(Palette.pink))
+                }
             } else if claudeModel.error == nil {
                 caption(Text("Loading…"))
             }
@@ -483,7 +486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let codexPercent = model.snapshot?.groups.first?.windows.map(\.remaining).min()
         let codexText = text(prefix: "Codex", percent: codexPercent, failed: model.error != nil, placeholder: "Codex …")
-        let claudeText = text(prefix: "Claude", percent: claudeModel.snapshot?.menuPercent, failed: claudeModel.error != nil, placeholder: "Claude …")
+        let claudeText = text(prefix: "Claude", percent: claudeModel.snapshot?.menuPercent, failed: claudeModel.error != nil || claudeModel.snapshot?.isStale == true, placeholder: "Claude …")
         let devinText = text(prefix: "Devin", percent: devinModel.snapshot?.menuPercent, failed: devinModel.error != nil, placeholder: "Devin …")
         statusItem.button?.attributedTitle = Self.statusTitle(codex: codexText, claude: claudeText, devin: devinText)
         var tooltipParts: [String] = []
