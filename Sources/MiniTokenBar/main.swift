@@ -176,7 +176,7 @@ struct QuotaPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
                     serviceHeader(mark: CodexMark(), title: "Codex", url: "https://chatgpt.com/codex/settings/usage", trailing: codexTrailing)
                     if let snapshot = model.snapshot {
                         if let general = snapshot.groups.first, !general.windows.isEmpty {
@@ -187,7 +187,7 @@ struct QuotaPanel: View {
                             }
                         } else {
                             Text(snapshot.plan == "API" ? "Subscription usage is not available in API mode." : "No usage window reported.")
-                                .font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20)
+                                .font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20).padding(.vertical, 10)
                         }
                     } else {
                         loadingRow("Loading Codex usage…")
@@ -199,7 +199,7 @@ struct QuotaPanel: View {
                         if let general = snapshot.groups.first, !general.windows.isEmpty {
                             windowsRow(general.windows)
                         } else {
-                            Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20)
+                            Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20).padding(.vertical, 10)
                         }
                     } else {
                         loadingRow("Loading Claude usage…")
@@ -211,7 +211,7 @@ struct QuotaPanel: View {
                         if let general = snapshot.groups.first, !general.windows.isEmpty {
                             windowsRow(general.windows)
                         } else {
-                            Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20)
+                            Text("No usage window reported.").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.4)).padding(.horizontal, 20).padding(.vertical, 10)
                         }
                         if let balance = snapshot.balance {
                             infoLine(Text("Extra usage: ").foregroundStyle(Color.white.opacity(0.4)) + Text(balance).foregroundStyle(Self.pink))
@@ -255,7 +255,7 @@ struct QuotaPanel: View {
                 Text(trailing).font(.system(size: 13, weight: .medium)).tracking(-0.08)
                     .foregroundStyle(Color.white.opacity(0.45)).lineLimit(1)
             }
-        }.padding(.horizontal, 20)
+        }.padding(.horizontal, 20).padding(.vertical, 10)
     }
     private func windowsRow(_ windows: [QuotaWindow]) -> some View {
         HStack(alignment: .top, spacing: 16) {
@@ -263,19 +263,21 @@ struct QuotaPanel: View {
         }.padding(.horizontal, 20)
     }
     private func metricColumn(_ window: QuotaWindow) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 0) {
             Text(window.seconds == 18000 ? "5h" : window.label)
                 .font(.system(size: 13, weight: .medium)).tracking(-0.08)
                 .foregroundStyle(Color.white.opacity(0.55))
+                .padding(.top, 10).padding(.bottom, 4)
             HStack(alignment: .lastTextBaseline, spacing: 4) {
                 Text("\(window.remaining)").font(.system(size: 40, weight: .semibold)).tracking(-0.43)
                     .foregroundStyle(Color.white.opacity(0.92))
                 Text("%").font(.system(size: 24)).foregroundStyle(Color.white.opacity(0.25))
-            }.monospacedDigit().padding(.top, 2)
+            }.monospacedDigit()
             Text(resetText(window)).font(.system(size: 13, weight: .medium)).tracking(-0.08)
-                .foregroundStyle(Color.white.opacity(0.4)).padding(.top, 2)
+                .foregroundStyle(Color.white.opacity(0.4))
+                .padding(.top, 4).padding(.bottom, 10)
                 .fixedSize(horizontal: false, vertical: true)
-            slider(window).padding(.top, 10)
+            slider(window).frame(height: 26)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private static let blue = Color(red: 0, green: 0.569, blue: 1)
@@ -302,18 +304,20 @@ struct QuotaPanel: View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.small)
             Text(text).foregroundStyle(Color.white.opacity(0.45))
-        }.font(.system(size: 12)).padding(.horizontal, 20)
+        }.font(.system(size: 12)).padding(.horizontal, 20).padding(.vertical, 10)
     }
     private func errorRow(_ text: String) -> some View {
         Label(text, systemImage: "exclamationmark.circle")
             .font(.system(size: 11)).foregroundStyle(.orange)
-            .padding(.horizontal, 20).fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 20).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
     }
     private func infoLine(_ text: Text) -> some View {
-        text.font(.system(size: 13, weight: .medium)).tracking(-0.08).padding(.horizontal, 20)
+        text.font(.system(size: 13, weight: .medium)).tracking(-0.08)
+            .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 10)
     }
     private func separator() -> some View {
-        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1).padding(.horizontal, 20)
+        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+            .padding(.horizontal, 20).padding(.vertical, 12)
     }
     private static let resetFormatter: DateFormatter = {
         let formatter = DateFormatter()
